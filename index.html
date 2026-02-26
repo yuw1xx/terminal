@@ -1,1188 +1,717 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>SCiPNET // TERMINAL</title>
-  
-  <meta name="title" content="SCiPNET // TERMINAL">
-  <meta name="description" content="Secure Containment Procedures Foundation Database">
-  <meta name="theme-color" content="#000000">
-  
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' fill='%23ff5555' font-family='monospace' font-size='90'>!</text></svg>">
-  
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-  
-  <style>
-    :root {
-      /* DEFAULT: EMERALD PHOSPHOR */
-      --bg: #050505;
-      --term-main: #4af626;  
-      --term-dim: #2ea818;
-      --term-user: #50fa7b;  
-      --term-path: #bd93f9;  
-      --term-error: #ff5555; 
-      --term-warning: #ffb86c;
-      --term-link: #8be9fd;  
-      --term-accent: #f1fa8c; 
-      --glow: rgba(74, 246, 38, 0.5);
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Terminal - Linux Kernel 5.15</title>
+    <style>
+        :root {
+            --bg-color: #0c0c0c;
+            --fg-color: #cccccc;
+            --prompt-user: #11a143;
+            --prompt-path: #3b78ff;
+            --dir-color: #3b78ff;
+            --file-color: #cccccc;
+            --exec-color: #11a143;
+            --error-color: #e74856;
+            --font-family: 'Cascadia Code', 'Ubuntu Mono', 'Courier New', monospace;
+            --font-size: 15px;
+        }
 
-    /* THEME: AMBER */
-    body.theme-amber {
-      --term-main: #ffb000; --term-dim: #cc8800; --term-user: #ffcc55; 
-      --term-path: #ffdd99; --glow: rgba(255, 176, 0, 0.5);
-    }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
 
-    /* THEME: COBALT */
-    body.theme-cobalt {
-      --term-main: #0088ff; --term-dim: #0055aa; --term-user: #55aaff; 
-      --term-path: #99ccff; --glow: rgba(0, 136, 255, 0.5);
-    }
+        body, html {
+            height: 100%; width: 100%;
+            background-color: var(--bg-color);
+            color: var(--fg-color);
+            font-family: var(--font-family);
+            font-size: var(--font-size);
+            overflow: hidden;
+            position: relative;
+        }
 
-    /* THEME: GHOST (White) */
-    body.theme-ghost {
-      --term-main: #e2e2dc; --term-dim: #999999; --term-user: #ffffff; 
-      --term-path: #cccccc; --glow: rgba(255, 255, 255, 0.4);
-    }
+        #terminal {
+            height: 100%; width: 100%;
+            padding: 15px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #444 transparent;
+            display: flex;
+            flex-direction: column;
+        }
 
-    ::selection { background: var(--term-main); color: var(--bg); }
+        #terminal::-webkit-scrollbar { width: 6px; }
+        #terminal::-webkit-scrollbar-thumb { background-color: #444; border-radius: 3px; }
 
-    body, html {
-      margin: 0; padding: 0; width: 100%; height: 100%;
-      background-color: #000; color: #e2e2dc;
-      font-family: 'JetBrains Mono', monospace; font-size: 15px;
-      line-height: 1.5; overflow: hidden; user-select: none; 
-      perspective: 1000px;
-    }
+        .output-line {
+            margin-bottom: 2px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.3;
+        }
 
-    /* --- HARDWARE SIMULATION & CRT TUBE EFFECT --- */
-    #monitor-bezel {
-      width: 100vw; height: 100vh; padding: 2vw; box-sizing: border-box;
-      background: #020202; display: flex; align-items: center; justify-content: center;
-    }
+        .input-line {
+            display: none; /* Hidden during boot */
+            align-items: center;
+            margin-top: 5px;
+            flex-wrap: wrap;
+        }
 
-    #screen-glass {
-      width: 100%; height: 100%; position: relative;
-      background-color: var(--bg); border-radius: 12px; overflow: hidden;
-      box-shadow: inset 0 0 50px rgba(0,0,0,0.8), inset 0 0 15px rgba(255,255,255,0.05), 0 0 20px rgba(0,0,0,1);
-      animation: textFlicker 0.15s infinite alternate;
-      text-shadow: 0 0 3px var(--glow);
-      display: flex; flex-direction: column;
-      /* Hidden initially for power-on effect */
-      transform: scale(0.001, 0.001);
-      opacity: 0;
-    }
+        .prompt { font-weight: bold; margin-right: 8px; white-space: pre; }
+        .prompt .user { color: var(--prompt-user); }
+        .prompt .path { color: var(--prompt-path); }
 
-    .power-on {
-      animation: crtTurnOn 0.6s cubic-bezier(0.23, 1, 0.32, 1) forwards !important;
-    }
+        #cmd-input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            color: inherit;
+            font-family: inherit;
+            font-size: inherit;
+            outline: none;
+            min-width: 50%;
+        }
 
-    @keyframes crtTurnOn {
-      0% { transform: scale(0.01, 0.001); opacity: 1; filter: brightness(10); background: #fff; }
-      40% { transform: scale(1, 0.001); opacity: 1; filter: brightness(10); background: #fff; }
-      100% { transform: scale(1, 1); opacity: 1; filter: brightness(1); background: var(--bg); }
-    }
+        .dir { color: var(--dir-color); font-weight: bold; }
+        .exec { color: var(--exec-color); font-weight: bold; }
+        .error { color: var(--error-color); }
+        .boot-log { color: #aaa; font-size: 13px; }
+        .success { color: #11a143; }
 
-    @keyframes textFlicker {
-      0% { opacity: 0.96; text-shadow: 0 0 2px var(--glow); }
-      100% { opacity: 1; text-shadow: 0 0 5px var(--glow); }
-    }
+        /* Full-screen UI components */
+        #top-overlay, #nano-editor, #cmatrix-overlay {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: var(--bg-color);
+            z-index: 100;
+        }
 
-    /* --- CRT OVERLAYS & SCANLINES --- */
-    .crt-overlay {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      background: 
-          linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
-          linear-gradient(90deg, rgba(255, 0, 0, 0.04), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.04)),
-          repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.1) 2px, rgba(0,0,0,0.1) 4px);
-      background-size: 100% 4px, 6px 100%, 100% 100%;
-      z-index: 100; pointer-events: none;
-    }
+        #top-overlay { padding: 10px; flex-direction: column; }
+        #cmatrix-overlay { z-index: 200; background-color: black; }
 
-    .crt-vignette {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      background: radial-gradient(circle, rgba(0,0,0,0) 50%, rgba(0,0,0,0.95) 100%);
-      z-index: 101; pointer-events: none;
-      box-shadow: inset 0 0 100px rgba(0,0,0,0.9);
-    }
+        /* Nano Specifics */
+        #nano-editor { flex-direction: column; }
+        #nano-header {
+            background-color: #ddd; color: #000;
+            padding: 2px 10px; font-weight: bold; display: flex; justify-content: space-between;
+        }
+        #nano-footer {
+            background-color: #ddd; color: #000;
+            padding: 5px 10px; font-weight: bold; display: flex; gap: 20px; flex-wrap: wrap;
+        }
+        #nano-textarea {
+            flex-grow: 1; background: transparent; color: inherit;
+            border: none; padding: 10px; font-family: inherit; font-size: inherit;
+            outline: none; resize: none;
+        }
 
-    /* --- GLOBAL STATUS BAR --- */
-    #status-bar {
-      display: flex; justify-content: space-between; align-items: center;
-      padding: 0.4rem 2rem; background: rgba(74, 246, 38, 0.1);
-      border-bottom: 1px solid var(--term-main);
-      color: var(--term-main); font-weight: bold; font-size: 0.9rem;
-      text-transform: uppercase; z-index: 10; letter-spacing: 1px;
-      transition: all 0.3s;
-    }
-    .status-item { display: flex; align-items: center; gap: 0.5rem; }
-    .status-blink { animation: slowBlink 2s infinite; }
-    @keyframes slowBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        /* Nano Command prompt overlay */
+        #nano-prompt {
+            display: none; background-color: var(--bg-color); color: var(--fg-color);
+            padding: 5px 10px; border-top: 1px solid #444; align-items: center;
+        }
+        #nano-prompt-text { margin-right: 10px; }
+        #nano-prompt-input { background: transparent; border: none; color: inherit; outline: none; font-family: inherit; flex-grow: 1;}
 
-    /* --- MAIN TERMINAL --- */
-    #terminal-container {
-      position: relative; z-index: 10; flex: 1;
-      padding: 2rem 3rem; box-sizing: border-box;
-      overflow-y: auto; overflow-x: hidden; scroll-behavior: smooth;
-      display: flex; flex-direction: column;
-    }
-
-    #output { white-space: pre-wrap; word-wrap: break-word; margin-bottom: 0.5rem; }
-
-    .input-line {
-      display: flex; align-items: center; flex-wrap: wrap; 
-      margin-top: 0.2rem; padding-bottom: 2rem; position: relative;
-    }
-
-    .prompt-user { color: var(--term-user); font-weight: bold; text-shadow: 0 0 4px var(--term-user); transition: 0.3s; }
-    .prompt-host { color: var(--term-error); font-weight: bold; text-shadow: 0 0 4px var(--term-error); transition: 0.3s; }
-    .prompt-path { color: var(--term-path); font-weight: bold; text-shadow: 0 0 4px var(--term-path); transition: 0.3s; }
-    .prompt-char { color: var(--term-main); margin-right: 0.8rem; font-weight: bold; transition: 0.3s; }
-
-    #cmd-display { white-space: pre; color: var(--term-main); text-shadow: 0 0 4px var(--term-main); transition: 0.3s; }
-
-    .cursor {
-      display: inline-block; width: 0.6em; height: 1.2em;
-      background-color: var(--term-main); vertical-align: middle;
-      animation: blink 1s step-end infinite; box-shadow: 0 0 6px var(--term-main);
-      margin-left: 2px; margin-top: -2px; transition: 0.3s;
-    }
-    .cursor.typing { animation: none; opacity: 1; }
-    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
-
-    #cmd-input {
-      position: fixed; top: -100px; left: -100px;
-      opacity: 0; width: 1px; height: 1px; border: none; padding: 0; pointer-events: none; z-index: -1;
-    }
-
-    .system-msg { color: var(--term-dim); transition: 0.3s; }
-    .error-msg { color: var(--term-error); text-shadow: 0 0 5px var(--term-error); }
-    .warning-msg { color: var(--term-warning); text-shadow: 0 0 5px var(--term-warning); }
-    .success-msg { color: var(--term-main); text-shadow: 0 0 5px var(--term-main); transition: 0.3s; }
-    .key-color { color: var(--term-accent); transition: 0.3s; }
-    .redacted { background: #e2e2dc; color: #e2e2dc; text-shadow: none; display: inline-block; }
-    
-    .glitch-text { animation: glitch 0.1s linear infinite; display: inline-block; }
-    .shake-screen { animation: screenShake 0.4s ease-in-out; }
-
-    @keyframes glitch {
-      0% { transform: translate(0) }
-      20% { transform: translate(-2px, 1px) }
-      40% { transform: translate(-1px, -1px) }
-      60% { transform: translate(2px, 1px) }
-      80% { transform: translate(1px, -1px) }
-      100% { transform: translate(0) }
-    }
-
-    @keyframes screenShake {
-      0%, 100% { transform: translateX(0); }
-      10%, 30%, 50%, 70%, 90% { transform: translateX(-5px) translateY(2px); }
-      20%, 40%, 60%, 80% { transform: translateX(5px) translateY(-2px); }
-    }
-
-    .ascii-art {
-      font-weight: bold; color: var(--term-error); text-shadow: 0 0 8px var(--term-error);
-      margin-bottom: 1.5rem; line-height: 1.2; white-space: pre; font-size: 13px;
-    }
-
-    /* --- CCTV FEED STYLING --- */
-    .cctv-frame {
-      width: 100%; max-width: 500px; height: 280px;
-      border: 2px solid var(--term-main); margin: 1rem 0;
-      position: relative; overflow: hidden; background: #050505;
-      box-shadow: 0 0 15px rgba(0,0,0,0.8), inset 0 0 20px rgba(0,0,0,0.9);
-      transition: 0.3s;
-    }
-
-    /* Procedurally Generated Canvas Feed */
-    .cctv-canvas {
-      width: 100%; height: 100%; position: absolute; top: 0; left: 0;
-      pointer-events: none; border: none;
-      /* Default Emerald Filter applied to pure black & white drawings */
-      filter: grayscale(100%) sepia(100%) hue-rotate(70deg) contrast(1.8) brightness(0.8);
-    }
-    
-    /* Adapt procedural canvas filter to match the current terminal theme */
-    body.theme-amber .cctv-canvas { filter: grayscale(100%) sepia(100%) hue-rotate(10deg) contrast(1.8) brightness(0.8); }
-    body.theme-cobalt .cctv-canvas { filter: grayscale(100%) sepia(100%) hue-rotate(190deg) contrast(1.8) brightness(0.8); }
-    body.theme-ghost .cctv-canvas { filter: grayscale(100%) contrast(1.5) brightness(0.9); }
-    body.breach-mode .cctv-canvas { filter: grayscale(100%) sepia(100%) hue-rotate(0deg) contrast(2) brightness(0.8) !important; }
-
-    /* Override filters for specific functional cameras that shouldn't match phosphor */
-    .cctv-canvas.canvas-thermal { filter: contrast(1.2) brightness(1.2) saturate(1.5) !important; }
-    .cctv-canvas.canvas-radar { filter: sepia(100%) hue-rotate(70deg) contrast(2) brightness(1.2) !important; }
-
-    .cctv-static {
-      position: absolute; top: -100%; left: -100%; width: 300%; height: 300%;
-      /* SVG Filter generates pure TV Static! */
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.5'/%3E%3C/svg%3E");
-      animation: staticAnim 0.2s steps(2) infinite;
-      opacity: 0.4; mix-blend-mode: screen; pointer-events: none;
-    }
-    @keyframes staticAnim { 0% { transform: translate(0, 0); } 100% { transform: translate(10%, 10%); } }
-    
-    .cctv-overlay {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      padding: 1rem; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between;
-      color: #fff; text-shadow: 0 0 5px #000, 0 0 10px var(--term-main); font-weight: bold;
-      z-index: 10; font-size: 0.9rem; transition: 0.3s; pointer-events: none;
-    }
-    .cctv-header { display: flex; justify-content: space-between; }
-    .cctv-rec { color: #ff3333; text-shadow: 0 0 5px #ff3333; animation: blink 1.5s infinite; }
-
-    /* --- CONTAINMENT BREACH MODE --- */
-    body.breach-mode {
-      --term-main: #ff3333 !important; --term-dim: #aa1111 !important; 
-      --term-user: #ffaaaa !important; --term-path: #ff6666 !important;
-      --glow: rgba(255, 51, 51, 0.7) !important; animation: breachPulse 1.5s infinite;
-    }
-    body.breach-mode #status-bar { border-bottom-color: var(--term-main); color: var(--term-main); background: rgba(255,51,51,0.2); }
-    @keyframes breachPulse { 0%, 100% { background-color: #000; } 50% { background-color: #300000; } }
-
-    /* --- NANO PAGER STYLING --- */
-    #nano-view {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      background-color: var(--bg); z-index: 200; display: none; flex-direction: column;
-      font-family: 'JetBrains Mono', monospace; font-size: 15px; user-select: text; 
-    }
-
-    .nano-header, .nano-footer {
-      background-color: #e2e2dc; color: var(--bg); padding: 0.3rem 1.5rem;
-      display: flex; justify-content: space-between; font-weight: bold; text-shadow: none; flex-shrink: 0; z-index: 10;
-    }
-    .nano-footer { cursor: pointer; transition: background 0.2s; }
-    .nano-footer:hover { background-color: var(--term-main); }
-
-    .nano-content {
-      flex: 1; overflow-y: auto; padding: 2rem 3rem; color: #e2e2dc; z-index: 10; position: relative;
-    }
-
-    #nano-content p { margin-bottom: 1.2rem; }
-    #nano-content table { border-collapse: collapse; margin-bottom: 1.5rem; width: 100%; background: rgba(0,0,0,0.5); }
-    #nano-content th, #nano-content td { border: 1px solid var(--term-dim); padding: 0.8rem; }
-    
-    #nano-content img {
-      max-width: 100%; max-height: 500px; border: 2px solid var(--term-main);
-      filter: grayscale(100%) sepia(100%) hue-rotate(70deg) brightness(1.2) contrast(1.8);
-      opacity: 0.85; margin: 1.5rem 0 0.5rem 0; display: block; box-shadow: 0 0 20px rgba(74, 246, 38, 0.3);
-    }
-
-    body.breach-mode #nano-content img {
-      filter: grayscale(100%) sepia(100%) hue-rotate(0deg) brightness(1.2) contrast(1.8) !important;
-      box-shadow: 0 0 20px rgba(255, 51, 51, 0.3); border-color: var(--term-main);
-    }
-
-    #nano-content blockquote {
-      border-left: 4px solid var(--term-warning); padding-left: 1.5rem; color: var(--term-warning);
-      margin: 2rem 0; background: rgba(255, 184, 108, 0.08); text-shadow: 0 0 3px rgba(255, 184, 108, 0.5);
-    }
-
-    #nano-content a { color: var(--term-link); text-decoration: none; border-bottom: 1px dashed var(--term-link); transition: all 0.2s; }
-    #nano-content a:hover { background-color: var(--term-link); color: var(--bg); }
-
-    .scp-keyword { color: var(--term-accent); font-weight: bold; text-shadow: 0 0 5px rgba(241, 250, 140, 0.6); }
-
-    /* Matrix Decryption Overlay */
-    #decrypt-overlay {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      background: var(--bg); z-index: 50; display: none; flex-direction: column;
-      font-size: 1.2rem; overflow: hidden; color: var(--term-main); padding-top: 2rem;
-    }
-    
-    .matrix-column {
-      position: absolute; top: -100%;
-      font-family: 'JetBrains Mono', monospace; font-size: 1.5rem;
-      line-height: 1; text-align: center; color: var(--term-dim);
-      text-shadow: 0 0 5px var(--term-main);
-      animation: matrixFall linear infinite;
-    }
-    .matrix-column span:last-child { color: #fff; text-shadow: 0 0 10px #fff, 0 0 20px var(--term-main); }
-    
-    @keyframes matrixFall {
-      0% { transform: translateY(-100%); opacity: 1; }
-      100% { transform: translateY(100vh); opacity: 0; }
-    }
-
-    ::-webkit-scrollbar { width: 12px; }
-    ::-webkit-scrollbar-track { background: var(--bg); border-left: 1px solid rgba(255, 255, 255, 0.05); }
-    ::-webkit-scrollbar-thumb { background: rgba(255, 85, 85, 0.5); border-radius: 0px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(255, 85, 85, 0.9); }
-
-    @media (max-width: 800px) {
-      #monitor-bezel { padding: 0; }
-      #screen-glass { border-radius: 0; }
-      #status-bar { flex-direction: column; gap: 0.5rem; padding: 0.5rem; font-size: 11px;}
-      #terminal-container { padding: 1.5rem 1rem; font-size: 13px; }
-      .ascii-art { font-size: 7px; }
-      .nano-content { padding: 1rem; font-size: 13px; }
-      .nano-header span:nth-child(1), .nano-footer span:nth-child(1), .nano-footer span:nth-child(2) { display: none; }
-      .cctv-frame { height: 200px; }
-    }
-  </style>
+        .ls-l-table { display: table; margin: 5px 0; }
+        .ls-l-row { display: table-row; }
+        .ls-l-cell { display: table-cell; padding-right: 15px; white-space: pre; }
+    </style>
 </head>
 <body>
 
-<!-- INITIALIZE OVERLAY -->
-<div id="init-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:#000;color:var(--term-main);display:flex;align-items:center;justify-content:center;font-size:1.5rem;z-index:999;cursor:pointer;font-family:'JetBrains Mono',monospace; text-shadow: 0 0 10px var(--term-main);">
-  <span class='cursor'></span> PRESS ANYWHERE TO INITIALIZE SCiPNET
-</div>
-
-<div id="monitor-bezel">
-  <div id="screen-glass">
-    
-    <div class="crt-overlay"></div>
-    <div class="crt-vignette"></div>
-
-    <!-- STATUS BAR -->
-    <div id="status-bar">
-      <div class="status-item"><span>SYS:</span> <span class="status-blink" id="status-sys">ONLINE</span></div>
-      <div class="status-item"><span>CLEARANCE:</span> <span>O5 (THAUMIEL)</span></div>
-      <div class="status-item"><span>MEM:</span> <span id="mem-usage">64TB / 128TB</span></div>
-      <div class="status-item"><span>UPLINK:</span> <span id="sys-clock">00:00:00 UTC</span></div>
-    </div>
-
-    <!-- NANO PAGER VIEW -->
-    <div id="nano-view">
-      <div class="nano-header">
-        <span>GNU nano 6.2</span>
-        <span id="nano-title">File: SCP-XXX.DAT</span>
-        <span>Read View</span>
-      </div>
-      
-      <div id="decrypt-overlay">
-        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 100;" class="glitch-text">
-          <span style="background: var(--bg); padding: 1rem; border: 2px solid var(--term-main); font-weight: bold; font-size: 2rem; color: var(--term-main);">[ DECRYPTING CLASSIFIED PAYLOAD ]</span>
+    <div id="terminal">
+        <div id="output"></div>
+        <div class="input-line" id="input-container">
+            <span class="prompt" id="prompt"></span>
+            <input type="text" id="cmd-input" autocomplete="off" spellcheck="false" autofocus>
         </div>
-      </div>
-
-      <div class="nano-content" id="nano-content"></div>
-      
-      <div class="nano-footer" onclick="closePager()">
-        <span>^Y Prev Page</span>
-        <span>^V Next Page</span>
-        <span>[Click Here] or press [Q] / [ESC] to Exit</span>
-      </div>
     </div>
 
-    <!-- MAIN TERMINAL -->
-    <main id="terminal-container" role="main">
-      <div id="output"></div>
-      
-      <div class="input-line" id="input-line" style="display: none;">
-        <span class="prompt">
-          <span class="prompt-user">O5-Command</span>@<span class="prompt-host">SCiPNET</span>:<span class="prompt-path">/sys/db/records</span><span class="prompt-char">#</span>
-        </span>
-        <span id="cmd-display"></span>
-        <span class="cursor" id="term-cursor"></span>
-        <input type="text" id="cmd-input" autocomplete="off" spellcheck="false" autocapitalize="off" autofocus>
-      </div>
-    </main>
-    
-  </div>
-</div>
+    <!-- Nano Editor -->
+    <div id="nano-editor">
+        <div id="nano-header">
+            <span>GNU nano 5.4</span>
+            <span id="nano-filename">New Buffer</span>
+            <span></span>
+        </div>
+        <textarea id="nano-textarea" spellcheck="false"></textarea>
+        <div id="nano-prompt">
+            <span id="nano-prompt-text"></span>
+            <input type="text" id="nano-prompt-input" autocomplete="off" spellcheck="false">
+        </div>
+        <div id="nano-footer">
+            <span>^G Get Help</span> <span>^O Write Out</span> <span>^W Where Is</span> <span>^K Cut Text</span>
+            <span>^X Exit</span> <span>^R Read File</span> <span>^\\ Replace</span> <span>^U Uncut Text</span>
+        </div>
+    </div>
 
-  <script>
-    /* =========================================================================
-       ANTI-DEVTOOLS & SECURITY PROTOCOLS
-       ========================================================================= */
-    document.addEventListener('contextmenu', event => event.preventDefault());
-    document.addEventListener('keydown', function(e) {
-      if(e.key === 'F12' || (e.ctrlKey && e.shiftKey && ['I', 'J', 'C'].includes(e.key)) || (e.ctrlKey && e.key === 'U')) e.preventDefault();
-    });
-    console.log("%c[ UNAUTHORIZED ACCESS ATTEMPT DETECTED ]", "color: red; font-size: 20px; font-weight: bold;");
-    setInterval(function() { (function(a){return(function(a){return(Function('def','debugger'))()})()})() }, 50);
+    <!-- Top Overlay -->
+    <div id="top-overlay">
+        <div id="top-content" style="white-space: pre; font-family: monospace;"></div>
+    </div>
 
-    /* =========================================================================
-       ADVANCED AUDIO SYNTHESIZER (Web Audio API)
-       ========================================================================= */
-    let audioCtx;
-    let audioEnabled = false;
-    let ambientOsc, ambientGain;
-    let sirenOsc, sirenGain, sirenInterval;
+    <!-- CMatrix Overlay -->
+    <canvas id="cmatrix-overlay"></canvas>
 
-    function initAudio() {
-      if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        audioEnabled = true;
-        
-        ambientOsc = audioCtx.createOscillator();
-        ambientGain = audioCtx.createGain();
-        ambientOsc.type = 'sine';
-        ambientOsc.frequency.setValueAtTime(55, audioCtx.currentTime); 
-        ambientGain.gain.setValueAtTime(0.015, audioCtx.currentTime); 
-        ambientOsc.connect(ambientGain);
-        ambientGain.connect(audioCtx.destination);
-        ambientOsc.start();
-      }
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-    }
+    <script>
+        // --- System Internals ---
+        const startTime = Date.now();
+        let env = { USER: 'guest', HOME: '/home/guest', PWD: '/home/guest', SHELL: '/bin/bash', PATH: '/bin:/usr/bin' };
+        let currentPath = ['home', 'guest'];
+        let cmdHistory = [];
+        let historyIndex = -1;
+        let processes = [
+            { pid: 1, name: 'systemd', user: 'root', cpu: 0.1, mem: 1.2 },
+            { pid: 42, name: 'bash', user: 'guest', cpu: 0.0, mem: 0.5 },
+            { pid: 502, name: 'sshd', user: 'root', cpu: 0.0, mem: 0.2 }
+        ];
 
-    function playSound(type) {
-      if (!audioEnabled || !audioCtx) return;
-      const osc = audioCtx.createOscillator();
-      const gainNode = audioCtx.createGain();
-      osc.connect(gainNode); gainNode.connect(audioCtx.destination);
-      const now = audioCtx.currentTime;
-      
-      if (type === 'type') {
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(120 + Math.random() * 60, now);
-        gainNode.gain.setValueAtTime(0.015, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-        osc.start(now); osc.stop(now + 0.05);
-      } else if (type === 'enter') {
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(90, now);
-        gainNode.gain.setValueAtTime(0.04, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-        osc.start(now); osc.stop(now + 0.1);
-      } else if (type === 'error') {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(50, now);
-        gainNode.gain.setValueAtTime(0.08, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
-        osc.start(now); osc.stop(now + 0.3);
-      } else if (type === 'success') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(800, now);
-        osc.frequency.exponentialRampToValueAtTime(1500, now + 0.15);
-        gainNode.gain.setValueAtTime(0.03, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-        osc.start(now); osc.stop(now + 0.2);
-      } else if (type === 'poweron') {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(20, now);
-        osc.frequency.exponentialRampToValueAtTime(200, now + 0.5);
-        gainNode.gain.setValueAtTime(0.1, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
-        osc.start(now); osc.stop(now + 0.8);
-      }
-    }
-
-    function toggleSiren(active) {
-      if (!audioEnabled || !audioCtx) return;
-      if (active) {
-        if(sirenOsc) return;
-        sirenOsc = audioCtx.createOscillator();
-        sirenGain = audioCtx.createGain();
-        sirenOsc.type = 'square';
-        sirenOsc.connect(sirenGain);
-        sirenGain.connect(audioCtx.destination);
-        sirenGain.gain.setValueAtTime(0.02, audioCtx.currentTime);
-        sirenOsc.start();
-        
-        let up = true;
-        sirenInterval = setInterval(() => {
-          sirenOsc.frequency.linearRampToValueAtTime(up ? 800 : 400, audioCtx.currentTime + 1);
-          up = !up;
-        }, 1000);
-      } else {
-        if(sirenOsc) {
-          sirenOsc.stop(); sirenOsc.disconnect();
-          clearInterval(sirenInterval); sirenOsc = null;
+        // --- Virtual File System ---
+        function createNode(type, content = '', owner = 'root', perms = null) {
+            return {
+                type, content, owner,
+                group: owner === 'root' ? 'root' : 'users',
+                perms: perms || (type === 'dir' ? 'drwxr-xr-x' : (type === 'exec' ? '-rwxr-xr-x' : '-rw-r--r--')),
+                date: new Date().toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ''),
+                size: type === 'dir' ? 4096 : content.length
+            };
         }
-      }
-    }
 
-    /* =========================================================================
-       STATUS BAR LOGIC
-       ========================================================================= */
-    setInterval(() => {
-      document.getElementById('sys-clock').innerText = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
-      let memBase = 64;
-      let flux = (Math.random() * 2 - 1).toFixed(2);
-      document.getElementById('mem-usage').innerText = `${(memBase + parseFloat(flux)).toFixed(2)}TB / 128.00TB`;
-    }, 1000);
+        const vfs = createNode('dir', {
+            'bin': createNode('dir', {
+                'bash': createNode('exec', 'ELF...', 'root'),
+                'ls': createNode('exec', 'ELF...', 'root')
+            }),
+            'etc': createNode('dir', {
+                'hostname': createNode('file', 'webos-server\n'),
+                'passwd': createNode('file', 'root:x:0:0:root:/root:/bin/bash\nguest:x:1000:1000:guest:/home/guest:/bin/bash\n'),
+                'motd': createNode('file', 'Welcome to WebOS Linux 5.15 LTS\n* Documentation: https://github.com/webos\n')
+            }),
+            'home': createNode('dir', {
+                'guest': createNode('dir', {
+                    'documents': createNode('dir', {
+                        'notes.txt': createNode('file', 'Remember to fix the JS VFS logic tomorrow.', 'guest')
+                    }, 'guest'),
+                    'script.py': createNode('file', 'print("Hello from Python simulation")', 'guest')
+                }, 'guest')
+            }),
+            'proc': createNode('dir', {}), // Dynamic
+            'var': createNode('dir', { 'log': createNode('dir', { 'syslog': createNode('file', 'Initial boot complete.\n') }) })
+        });
 
-    /* =========================================================================
-       TERMINAL LOGIC & PROCEDURAL CANVAS ENGINE
-       ========================================================================= */
-    const output = document.getElementById('output');
-    const inputLine = document.getElementById('input-line');
-    const cmdDisplay = document.getElementById('cmd-display');
-    const inputField = document.getElementById('cmd-input');
-    const terminalContainer = document.getElementById('terminal-container');
-    const cursorEl = document.getElementById('term-cursor');
-    const nanoView = document.getElementById('nano-view');
-    const nanoContent = document.getElementById('nano-content');
-    const decryptOverlay = document.getElementById('decrypt-overlay');
+        // --- UI Logic ---
+        const outputEl = document.getElementById('output');
+        const inputEl = document.getElementById('cmd-input');
+        const promptEl = document.getElementById('prompt');
+        const inputContainer = document.getElementById('input-container');
+        const terminal = document.getElementById('terminal');
 
-    let commandHistory = [];
-    let historyIndex = -1;
-    let inPager = false;
-    let typingTimer;
-    let isBreach = false;
+        function print(text, className = '') {
+            const div = document.createElement('div');
+            div.className = 'output-line ' + className;
+            div.innerHTML = text.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+            outputEl.appendChild(div);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
 
-    const activeCameras = [];
-    function renderCameras() {
-      activeCameras.forEach(cam => {
-        const {ctx, w, h, type, state} = cam;
-        cam.frame++;
-        ctx.clearRect(0, 0, w, h);
-        
-        if (type === '01') { 
-            ctx.fillStyle = '#050505'; ctx.fillRect(0, 0, w, h);
-            ctx.fillStyle = '#ffffff';
-            state.stars.forEach(s => {
-               ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI*2); ctx.fill();
-               s.x -= s.speed; if(s.x < 0) s.x = w;
-            });
-            const earthY = h - 30; const earthR = 600;
-            ctx.beginPath(); ctx.arc(w/2, earthY + earthR, earthR, 0, Math.PI*2);
-            ctx.lineWidth = 4; ctx.fillStyle = '#111111'; ctx.fill();
-            ctx.strokeStyle = '#ffffff'; ctx.stroke();
-            state.satX += 1; if(state.satX > w + 100) state.satX = -100;
-            ctx.fillStyle = '#888888'; ctx.fillRect(state.satX, 50, 10, 4);
+        function printHTML(html, className = '') {
+            const div = document.createElement('div');
+            div.className = 'output-line ' + className;
+            div.innerHTML = html;
+            outputEl.appendChild(div);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
 
-        } else if (type === '02') { 
-            ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0,0,w,h);
-            ctx.strokeStyle = '#aaaaaa'; ctx.lineWidth = 1;
-            state.bubbles.forEach(b => {
-                ctx.beginPath(); ctx.arc(b.x, b.y, b.s, 0, Math.PI*2); ctx.stroke();
-                b.y -= b.v; if(b.y < -10) { b.y = h+10; b.x = Math.random()*w; }
-                b.x += Math.sin(cam.frame/20 + b.v) * 0.5;
-            });
-            state.entityX += 0.4; if(state.entityX > w + 200) state.entityX = -300;
-            ctx.fillStyle = '#000000'; ctx.beginPath();
-            ctx.ellipse(state.entityX, h/2 + Math.sin(cam.frame/50)*30, 120, 30, 0, 0, Math.PI*2);
-            ctx.fill();
+        function updatePrompt() {
+            const pathStr = '/' + currentPath.join('/');
+            const displayPath = pathStr.startsWith(env.HOME) ? '~' + pathStr.slice(env.HOME.length) : (pathStr || '/');
+            promptEl.innerHTML = `<span class="user">${env.USER}@webos</span>:<span class="path">${displayPath}</span>${env.USER === 'root' ? '#' : '$'}`;
+        }
 
-        } else if (type === '03') { 
-            ctx.fillStyle = '#080808'; ctx.fillRect(0,0,w,h);
-            ctx.strokeStyle = '#555555'; ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(0,0); ctx.lineTo(w/2-40, h/2-30); ctx.moveTo(w,0); ctx.lineTo(w/2+40, h/2-30);
-            ctx.moveTo(0,h); ctx.lineTo(w/2-40, h/2+30); ctx.moveTo(w,h); ctx.lineTo(w/2+40, h/2+30);
-            ctx.stroke(); ctx.strokeRect(w/2-40, h/2-30, 80, 60);
+        // --- Path Resolution ---
+        function resolvePath(pathStr) {
+            if (!pathStr) return [...currentPath];
+            if (pathStr === '~') return env.HOME.split('/').filter(x => x);
+            let parts = pathStr.split('/').filter(p => p !== '');
+            let target = pathStr.startsWith('/') ? [] : [...currentPath];
 
-            if (Math.random() > 0.99) state.spookFrame = Math.floor(Math.random() * 10) + 5;
-            if (state.spookFrame > 0) {
-               ctx.fillStyle = '#000000'; let scale = Math.random() > 0.8 ? 2 : 1;
-               ctx.fillRect(w/2 - (10*scale), h/2 - (5*scale), 20*scale, 35*scale);
-               state.spookFrame--;
+            for (let p of parts) {
+                if (p === '.') continue;
+                if (p === '..') { if (target.length > 0) target.pop(); }
+                else target.push(p);
             }
-            if (Math.random() > 0.92) { ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.fillRect(0,0,w,h); }
+            return target;
+        }
 
-        } else if (type === '05') { 
-            ctx.fillStyle = '#000044'; ctx.fillRect(0,0,w,h);
-            state.blobs.forEach(b => {
-                let grad = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
-                grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-                grad.addColorStop(0.2, 'rgba(255, 0, 0, 0.8)');
-                grad.addColorStop(0.5, 'rgba(255, 255, 0, 0.4)');
-                grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-                ctx.fillStyle = grad;
-                ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill();
-                b.x += b.vx; b.y += b.vy;
-                if(b.x<0||b.x>w) b.vx*=-1; if(b.y<0||b.y>h) b.vy*=-1;
-            });
+        function getNode(pathArr) {
+            let curr = vfs;
+            for (let p of pathArr) {
+                if (!curr || curr.type !== 'dir' || !curr.content[p]) return null;
+                curr = curr.content[p];
+            }
+            return curr;
+        }
 
-        } else if (type === '06') { 
-            ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0,0,w,h);
-            ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 2;
-            state.cells.forEach(c => {
-                ctx.beginPath();
-                for(let i=0; i<Math.PI*2; i+=0.4) {
-                    let r = c.r + Math.sin(cam.frame/10 + i)*4;
-                    let px = c.x + Math.cos(i)*r; let py = c.y + Math.sin(i)*r;
-                    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
-                }
-                ctx.closePath(); ctx.stroke();
-                ctx.fillStyle = 'rgba(255,255,255,0.3)';
-                ctx.beginPath(); ctx.arc(c.x + Math.sin(cam.frame/5)*2, c.y, c.r/3, 0, Math.PI*2); ctx.fill();
-                c.x += c.vx; c.y += c.vy;
-                if(c.x<0||c.x>w) c.vx*=-1; if(c.y<0||c.y>h) c.vy*=-1;
-            });
+        function getParentNodeAndName(pathArr) {
+            if (pathArr.length === 0) return { parent: null, name: '' };
+            let parentPath = pathArr.slice(0, -1);
+            let name = pathArr[pathArr.length - 1];
+            return { parent: getNode(parentPath), name: name };
+        }
 
-        } else if (type === '07') { 
-            ctx.fillStyle = 'rgba(0,20,0,0.1)'; ctx.fillRect(0,0,w,h);
-            ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 1;
-            let cx = w/2, cy = h/2, maxR = Math.min(w,h)/2 - 10;
-            
-            for(let r=maxR/4; r<=maxR; r+=maxR/4) { ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke(); }
-            ctx.beginPath(); ctx.moveTo(cx-maxR,cy); ctx.lineTo(cx+maxR,cy); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(cx,cy-maxR); ctx.lineTo(cx,cy+maxR); ctx.stroke();
-            
-            let angle = cam.frame / 25;
-            ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(angle)*maxR, cy+Math.sin(angle)*maxR); ctx.lineWidth=2; ctx.stroke();
-            
-            ctx.fillStyle = '#00ff00';
-            state.blips.forEach(b => {
-                let dx = b.x-cx, dy = b.y-cy;
-                let bAngle = Math.atan2(dy, dx);
-                if (bAngle < 0) bAngle += Math.PI*2;
-                let sweep = angle % (Math.PI*2);
-                if (Math.abs(sweep - bAngle) < 0.1) b.life = 1.0; 
+        // --- Command System ---
+        const commands = {
+            help: () => {
+                return `GNU bash, version 5.1.16(1)-release (x86_64-webos-linux-gnu)
+Available commands:
+  help      cd        ls        pwd       cat       echo
+  mkdir     touch     rm        nano      ps        top
+  su        whoami    date      uptime    ping      curl
+  clear     history   neofetch  apt       cmatrix
+
+Pro-tips:
+- Use Up/Down arrows for command history.
+- Use Tab to auto-complete commands and file names.
+- Try running 'cmatrix' for a cool effect!`;
+            },
+            clear: () => { outputEl.innerHTML = ''; return null; },
+            pwd: () => '/' + currentPath.join('/'),
+            whoami: () => env.USER,
+            date: () => new Date().toString(),
+            history: () => cmdHistory.map((c, i) => `  ${i+1}  ${c}`).join('\n'),
+            uptime: () => {
+                const diff = Math.floor((Date.now() - startTime) / 1000);
+                return `up ${Math.floor(diff / 60)} minutes, 1 user, load average: 0.01, 0.05, 0.10`;
+            },
+            ls: (args) => {
+                const long = args.includes('-l');
+                const all = args.includes('-a');
+                const target = resolvePath(args.find(a => !a.startsWith('-')) || '');
+                const node = getNode(target);
+                if (!node || node.type !== 'dir') return `<span class="error">ls: cannot access: No such directory</span>`;
                 
-                if (b.life > 0) {
-                    ctx.globalAlpha = b.life;
-                    ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill();
-                    b.life -= 0.02; ctx.globalAlpha = 1.0;
+                let keys = Object.keys(node.content);
+                if (all) keys = ['.', '..', ...keys];
+                keys.sort();
+
+                if (long) {
+                    let html = '<div class="ls-l-table">';
+                    html += `<div class="ls-l-row"><span class="ls-l-cell">total ${keys.length * 4}</span></div>`;
+                    keys.forEach(k => {
+                        const item = (k === '.' || k === '..') ? node : node.content[k];
+                        const cName = item.type === 'dir' ? 'dir' : (item.type === 'exec' ? 'exec' : 'file');
+                        html += `<div class="ls-l-row">
+                            <span class="ls-l-cell">${item.perms}</span>
+                            <span class="ls-l-cell">${item.owner}</span>
+                            <span class="ls-l-cell">${item.group}</span>
+                            <span class="ls-l-cell" style="text-align:right">${item.size}</span>
+                            <span class="ls-l-cell">${item.date}</span>
+                            <span class="ls-l-cell ${cName}">${k}</span>
+                        </div>`;
+                    });
+                    return html + '</div>';
                 }
-            });
-        }
-      });
-      requestAnimationFrame(renderCameras);
-    }
-    requestAnimationFrame(renderCameras);
+                return keys.map(k => {
+                    const item = (k === '.' || k === '..') ? node : node.content[k];
+                    const cName = item.type === 'dir' ? 'dir' : (item.type === 'exec' ? 'exec' : 'file');
+                    return `<span class="${cName}">${k}</span>`;
+                }).join('  ');
+            },
+            cd: (args) => {
+                const target = resolvePath(args[0] || '~');
+                const node = getNode(target);
+                if (node && node.type === 'dir') { currentPath = target; updatePrompt(); return null; }
+                return `<span class="error">cd: ${args[0]}: No such directory</span>`;
+            },
+            cat: (args) => {
+                if (!args[0]) return `<span class="error">cat: missing file operand</span>`;
+                const node = getNode(resolvePath(args[0]));
+                if (!node) return `<span class="error">cat: ${args[0]}: No such file</span>`;
+                if (node.type === 'dir') return `<span class="error">cat: ${args[0]}: Is a directory</span>`;
+                return node.content;
+            },
+            echo: (args) => args.join(' '),
+            mkdir: (args) => {
+                if (!args[0]) return `<span class="error">mkdir: missing operand</span>`;
+                const { parent, name } = getParentNodeAndName(resolvePath(args[0]));
+                if (!parent || parent.type !== 'dir') return `<span class="error">mkdir: cannot create directory '${args[0]}'</span>`;
+                if (parent.content[name]) return `<span class="error">mkdir: cannot create directory '${args[0]}': File exists</span>`;
+                parent.content[name] = createNode('dir', {}, env.USER);
+                return null;
+            },
+            touch: (args) => {
+                if (!args[0]) return `<span class="error">touch: missing operand</span>`;
+                const { parent, name } = getParentNodeAndName(resolvePath(args[0]));
+                if (!parent || parent.type !== 'dir') return `<span class="error">touch: cannot touch '${args[0]}'</span>`;
+                if (!parent.content[name]) parent.content[name] = createNode('file', '', env.USER);
+                else parent.content[name].date = new Date().toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+                return null;
+            },
+            rm: (args) => {
+                if (!args[0]) return `<span class="error">rm: missing operand</span>`;
+                const { parent, name } = getParentNodeAndName(resolvePath(args[0]));
+                if (!parent || !parent.content[name]) return `<span class="error">rm: cannot remove '${args[0]}': No such file</span>`;
+                if (parent.content[name].type === 'dir' && !args.includes('-r')) return `<span class="error">rm: cannot remove '${args[0]}': Is a directory</span>`;
+                delete parent.content[name];
+                return null;
+            },
+            su: (args) => {
+                const user = args[0] || 'root';
+                print(`Password for ${user}: `); 
+                setTimeout(() => {
+                    env.USER = user;
+                    env.HOME = user === 'root' ? '/root' : '/home/' + user;
+                    currentPath = env.HOME.split('/').filter(x => x);
+                    updatePrompt();
+                    print(`Logged in as ${user}`, 'success');
+                }, 800);
+                return null;
+            },
+            ps: () => {
+                let out = "  PID TTY          TIME CMD\n";
+                processes.forEach(p => out += `${p.pid.toString().padStart(5)} pts/0    00:00:00 ${p.name}\n`);
+                return out;
+            },
+            top: () => {
+                const overlay = document.getElementById('top-overlay');
+                const content = document.getElementById('top-content');
+                overlay.style.display = 'flex';
+                inputEl.blur();
+                const interval = setInterval(() => {
+                    let out = `top - ${new Date().toLocaleTimeString()} up ...\n`;
+                    out += `Tasks: ${processes.length} total, 1 running, ${processes.length - 1} sleeping\n`;
+                    out += `%Cpu(s): ${ (Math.random() * 2).toFixed(1) } us, 1.2 sy, 0.0 ni, 98.5 id\n\n`;
+                    out += `  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND\n`;
+                    processes.forEach(p => {
+                        out += `${p.pid.toString().padStart(5)} ${p.user.padEnd(8)} 20   0  162312  24212   1241 S   ${p.cpu.toFixed(1)}   ${p.mem.toFixed(1)}   0:00.01 ${p.name}\n`;
+                    });
+                    content.innerText = out;
+                }, 1000);
 
-    function escapeHTML(str) {
-      return str.replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
-    }
+                const endTop = (e) => {
+                    if (e.key === 'q' || e.key === 'Escape') {
+                        clearInterval(interval);
+                        overlay.style.display = 'none';
+                        window.removeEventListener('keydown', endTop);
+                        setTimeout(() => inputEl.focus(), 10);
+                    }
+                };
+                window.addEventListener('keydown', endTop);
+                return null;
+            },
+            ping: (args) => {
+                if (!args[0]) return "Usage: ping <host>";
+                let count = 0;
+                print(`PING ${args[0]} (1.1.1.1) 56(84) bytes of data.`);
+                const int = setInterval(() => {
+                    print(`64 bytes from 1.1.1.1: icmp_seq=${++count} ttl=58 time=${(Math.random()*20+10).toFixed(1)} ms`);
+                    if (count >= 4) {
+                        clearInterval(int);
+                        print(`--- ${args[0]} ping statistics ---`);
+                        print(`4 packets transmitted, 4 received, 0% packet loss`);
+                    }
+                }, 1000);
+                return null;
+            },
+            curl: (args) => {
+                if (!args[0]) return "curl: try 'curl --help' for more information";
+                print(`Connecting to ${args[0]}...`);
+                setTimeout(() => print(`HTTP/1.1 200 OK\nContent-Type: text/html\n\n&lt;html&gt;&lt;body&gt;Welcome to ${args[0]}&lt;/body&gt;&lt;/html&gt;`), 1200);
+                return null;
+            },
+            neofetch: () => {
+                const logo = `<span style="color: var(--prompt-path);">       _,met$$$$$gg.</span>
+<span style="color: var(--prompt-path);">    ,g$$$$$$$$$$$$$$$P.</span>
+<span style="color: var(--prompt-path);">  ,g$$P"     """Y$$.".</span>
+<span style="color: var(--prompt-path);"> ,$$P'              \`$$$.</span>
+<span style="color: var(--prompt-path);">',$$P       ,ggs.     \`$$b:</span>
+<span style="color: var(--prompt-path);">\`d$$'     ,$P"'   <span style="color: var(--error-color);">.</span>    $$$</span>
+<span style="color: var(--prompt-path);"> $$P      d$'     <span style="color: var(--error-color);">,</span>    $$P</span>
+<span style="color: var(--prompt-path);"> $$:      $$.   <span style="color: var(--error-color);">-</span>    ,d$$'</span>
+<span style="color: var(--prompt-path);"> $$;      Y$b._   _,d$P'</span>
+<span style="color: var(--prompt-path);"> Y$$.    <span style="color: var(--error-color);">\`</span>.\`"Y$$$$P"'</span>
+<span style="color: var(--prompt-path);"> \`$$b      <span style="color: var(--error-color);">"-.__</span></span>
+<span style="color: var(--prompt-path);">  \`Y$$</span>
+<span style="color: var(--prompt-path);">   \`Y$$.</span>`;
+                const info = `<span style="color: var(--prompt-user); font-weight: bold;">${env.USER}@webos</span>
+-------------------
+<span style="color: var(--prompt-path); font-weight: bold;">OS</span>: WebOS GNU/Linux
+<span style="color: var(--prompt-path); font-weight: bold;">Host</span>: Browser
+<span style="color: var(--prompt-path); font-weight: bold;">Kernel</span>: 5.15.0-webos
+<span style="color: var(--prompt-path); font-weight: bold;">Uptime</span>: ${Math.floor((Date.now() - startTime) / 60000)} mins
+<span style="color: var(--prompt-path); font-weight: bold;">Packages</span>: 42 (dpkg)
+<span style="color: var(--prompt-path); font-weight: bold;">Shell</span>: bash 5.1.16
+<span style="color: var(--prompt-path); font-weight: bold;">DE</span>: Web DOM
+<span style="color: var(--prompt-path); font-weight: bold;">Terminal</span>: HTML/JS Term
+<span style="color: var(--prompt-path); font-weight: bold;">CPU</span>: Virtual Web Core
+<span style="color: var(--prompt-path); font-weight: bold;">Memory</span>: 241MiB / 4096MiB`;
+                return `<div style="display: flex; gap: 30px; margin: 10px 0;"><div>${logo.split('\n').join('<br>')}</div><div>${info.split('\n').join('<br>')}</div></div>`;
+            },
+            apt: (args) => {
+                if (args[0] === 'install') {
+                    if (!args[1]) return `<span class="error">apt: missing package name</span>`;
+                    return `Reading package lists... Done\nBuilding dependency tree... Done\nReading state information... Done\nThe following NEW packages will be installed:\n  ${args[1]}\n0 upgraded, 1 newly installed, 0 to remove.\n<span class="success">[OK]</span> Installed ${args[1]} successfully.`;
+                }
+                return `Usage: apt install [package]`;
+            },
+            nano: (args) => {
+                const filename = args[0] || 'new_file.txt';
+                const { parent, name } = getParentNodeAndName(resolvePath(filename));
+                
+                if (!parent || parent.type !== 'dir') return `<span class="error">nano: cannot open directory</span>`;
+                
+                let fileNode = parent.content[name];
+                if (fileNode && fileNode.type === 'dir') return `<span class="error">nano: ${filename} is a directory</span>`;
 
-    function getPromptHTML() {
-      return `<span class="prompt-user">O5-Command</span>@<span class="prompt-host">SCiPNET</span>:<span class="prompt-path">/sys/db/records</span><span class="prompt-char">#</span>`;
-    }
+                const editor = document.getElementById('nano-editor');
+                const textarea = document.getElementById('nano-textarea');
+                const fnameEl = document.getElementById('nano-filename');
+                const prmpt = document.getElementById('nano-prompt');
+                const prmptInput = document.getElementById('nano-prompt-input');
+                const footer = document.getElementById('nano-footer');
 
-    function closePager() {
-      nanoView.style.display = 'none';
-      nanoContent.innerHTML = '';
-      inPager = false;
-      printHTML(`<span class="system-msg">>> EOF. Buffer cleared.</span>`);
-      inputField.focus({preventScroll: true});
-    }
+                editor.style.display = 'flex';
+                fnameEl.innerText = filename;
+                textarea.value = fileNode ? fileNode.content : '';
+                textarea.focus();
 
-    async function runDecryptionSequence() {
-      decryptOverlay.style.display = 'block';
-      nanoContent.style.opacity = '0';
-      Array.from(decryptOverlay.querySelectorAll('.matrix-column')).forEach(e => e.remove());
+                let isSaving = false;
 
-      const columns = Math.floor(window.innerWidth / 20);
-      const chars = "0123456789ABCDEF!@#$*&^%█▓▒░";
-      let intervals = [];
+                const nanoKeyHandler = (e) => {
+                    if (e.ctrlKey && e.key === 'x') {
+                        e.preventDefault();
+                        if (textarea.value !== (fileNode ? fileNode.content : '')) {
+                            // Modified
+                            footer.style.display = 'none';
+                            prmpt.style.display = 'flex';
+                            document.getElementById('nano-prompt-text').innerText = "Save modified buffer? (Y/N)";
+                            prmptInput.focus();
+                            isSaving = true;
+                        } else {
+                            exitNano();
+                        }
+                    }
+                };
 
-      for(let i=0; i<columns; i++) {
-        let col = document.createElement('div');
-        col.className = 'matrix-column';
-        col.style.left = (i * 20) + 'px';
-        col.style.animationDuration = (Math.random() * 1.5 + 0.5) + 's';
-        col.style.animationDelay = (Math.random() * 2) + 's';
-        
-        let updateInterval = setInterval(() => {
-          let str = "";
-          let len = Math.floor(Math.random() * 15) + 5;
-          for(let j=0; j<len; j++) str += `<span>${chars.charAt(Math.floor(Math.random() * chars.length))}</span><br>`;
-          col.innerHTML = str;
-        }, 100);
-        intervals.push(updateInterval);
-        decryptOverlay.appendChild(col);
-      }
+                const promptKeyHandler = (e) => {
+                    if (!isSaving) return;
+                    if (e.key.toLowerCase() === 'y') {
+                        // Save and exit
+                        if (!fileNode) parent.content[name] = createNode('file', textarea.value, env.USER);
+                        else parent.content[name].content = textarea.value;
+                        exitNano();
+                    } else if (e.key.toLowerCase() === 'n') {
+                        exitNano(); // Exit without saving
+                    } else if (e.key === 'Escape' || (e.ctrlKey && e.key === 'c')) {
+                        // Cancel
+                        isSaving = false;
+                        prmpt.style.display = 'none';
+                        footer.style.display = 'flex';
+                        textarea.focus();
+                    }
+                };
 
-      playSound('success');
-      await new Promise(r => setTimeout(r, 1800)); 
-      
-      intervals.forEach(clearInterval);
-      decryptOverlay.style.display = 'none';
-      nanoContent.style.opacity = '1';
-    }
+                const exitNano = () => {
+                    editor.style.display = 'none';
+                    prmpt.style.display = 'none';
+                    footer.style.display = 'flex';
+                    textarea.removeEventListener('keydown', nanoKeyHandler);
+                    prmptInput.removeEventListener('keydown', promptKeyHandler);
+                    inputEl.focus();
+                };
 
-    // --- COMMAND DEFINITIONS ---
-    const commands = {
-      help: {
-        action: () => {
-          const helpStr = `
-<span class="success-msg">[ SCiPNET AUTHORIZED EXECUTABLES ]</span>
-  <span class="key-color">scp [ID]</span>     Fetch dossier for exact designation (e.g. scp 096)
-  <span class="key-color">random</span>       Initialize randomized database query
-  <span class="key-color">map</span>          Initialize active global node traceroute
-  <span class="key-color">track [ID]</span>   Connect to deep-space orbital tracking array
-  <span class="key-color">cctv [CAM]</span>   Access secure facility camera feeds (Available IDs: 01, 02, 03, 05, 06, 07)
-  <span class="key-color">theme [NAME]</span> Recalibrate phosphor display (emerald, amber, cobalt, ghost)
-  <span class="key-color">redact [T]</span>   Process plaintext [T] through memetic scrubbers
-  <span class="key-color">whoami</span>       Identify current session privileges
-  <span class="key-color">reboot</span>       Restart SCiPNET terminal connection
-  <span class="key-color">clear</span>        Purge display buffer
-  <span class="error-msg glitch-text">breach</span>       [DATA EXPUNGED] DO NOT EXECUTE
-`;
-          printHTML(helpStr.trim());
-        }
-      },
-      theme: {
-        action: (args) => {
-          const t = args[0] ? args[0].toLowerCase() : '';
-          const valid = ['emerald', 'amber', 'cobalt', 'ghost'];
-          if (!valid.includes(t)) {
-            playSound('error'); printHTML(`<span class="error-msg">ERROR: INVALID THEME. AVAILABLE: ${valid.join(', ')}</span>`); return;
-          }
-          document.body.className = '';
-          if (t !== 'emerald') document.body.classList.add(`theme-${t}`);
-          playSound('success'); printHTML(`<span class="success-msg">>> DISPLAY PHOSPHOR RECALIBRATED TO: ${t.toUpperCase()}</span>`);
-        }
-      },
-      cctv: {
-        action: async (args) => {
-          let camId = args[0] ? args[0].toUpperCase() : 'UNKNOWN';
-          playSound('type');
-          printHTML(`<span class="system-msg">>> CONNECTING TO SECURE FEED: CAM-${camId}...</span>`);
-          await new Promise(r => setTimeout(r, 1200));
-          
-          let type = ''; let camStatus = "ONLINE"; let location = "UNKNOWN SECTOR"; let extraClass = '';
+                textarea.addEventListener('keydown', nanoKeyHandler);
+                prmptInput.addEventListener('keydown', promptKeyHandler);
+                return null;
+            },
+            cmatrix: () => {
+                const canvas = document.getElementById('cmatrix-overlay');
+                const ctx = canvas.getContext('2d');
+                canvas.style.display = 'block';
+                inputEl.blur();
 
-          if (camId === '01' || camId === 'SPACE') { type = '01'; location = "ORBITAL ARRAY"; }
-          else if (camId === '02' || camId === 'OCEAN') { type = '02'; location = "AQUATIC CONTAINMENT"; }
-          else if (camId === '03' || camId === 'CITY' || camId === 'CORRIDOR') { type = '03'; location = "SECTOR 4 [HALLWAY]"; }
-          else if (camId === '05' || camId === 'THERMAL') { type = '05'; location = "BIOMETRIC SCANNER"; extraClass = 'canvas-thermal'; }
-          else if (camId === '06' || camId === 'MICRO' || camId === 'BIO') { type = '06'; location = "HAZMAT LAB 02"; }
-          else if (camId === '07' || camId === 'RADAR') { type = '07'; location = "SECTOR 7 AIRSPACE"; extraClass = 'canvas-radar'; }
-          else if (camId === '04' || camId === 'STATIC') { type = '04'; camStatus = "CONNECTION LOST"; location = "HEAVY CONTAINMENT"; }
-          else {
-             const types = ['01', '02', '03', '04', '05', '06', '07'];
-             type = types[Math.floor(Math.random() * types.length)];
-             if(type === '04') camStatus = "CONNECTION LOST";
-             if(type === '05') extraClass = 'canvas-thermal';
-             if(type === '07') extraClass = 'canvas-radar';
-          }
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
 
-          if(type === '04') playSound('error'); else playSound('success');
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*()_+-=<>?'.split('');
+                const fontSize = 16;
+                const columns = canvas.width / fontSize;
+                const drops = [];
+                for (let x = 0; x < columns; x++) drops[x] = 1;
 
-          const frameId = `cam-${Date.now()}`; const canvasId = `cvs-${Date.now()}`;
-          
-          printHTML(`
-            <div class="cctv-frame">
-              ${type !== '04' ? `<canvas id="${canvasId}" width="500" height="280" class="cctv-canvas ${extraClass}"></canvas>` : ''}
-              <div class="cctv-static" style="opacity: ${type !== '04' ? '0.15' : '0.4'};"></div>
-              <div class="cctv-overlay">
-                <div class="cctv-header"><span>CAM-${camId} // ${camStatus}</span><span class="cctv-rec">● REC</span></div>
-                ${type === '04' ? `<div style="font-size: 2rem; align-self: center; text-align: center;" class="glitch-text">CONNECTION LOST<br><span style="font-size:1rem;">${location}</span></div>` : '<div></div>'}
-                <div style="display: flex; justify-content: space-between;">
-                  <span style="color:var(--term-warning);">${type === '04' ? 'WARN: COGNITOHAZARD FILTERS OFFLINE' : 'LOC: ' + location}</span>
-                  <span id="${frameId}-time"></span>
-                </div>
-              </div>
-            </div>
-          `);
-          
-          if (type !== '04') {
-             const cvs = document.getElementById(canvasId); const ctx = cvs.getContext('2d');
-             let state = {};
-             if (type === '01') {
-                state.stars = Array.from({length: 80}, () => ({x: Math.random()*500, y: Math.random()*280, size: Math.random()*1.5+0.5, speed: Math.random()*0.3+0.1}));
-                state.satX = -100;
-             } else if (type === '02') {
-                state.bubbles = Array.from({length: 40}, () => ({x: Math.random()*500, y: Math.random()*280, s: Math.random()*3+1, v: Math.random()*1.5+0.5}));
-                state.entityX = -200;
-             } else if (type === '03') {
-                state.spookFrame = 0;
-             } else if (type === '05') { 
-                state.blobs = Array.from({length: 5}, () => ({
-                   x: Math.random()*500, y: Math.random()*280, r: Math.random()*60 + 40, vx: (Math.random()-0.5)*2, vy: (Math.random()-0.5)*2
-                }));
-             } else if (type === '06') { 
-                state.cells = Array.from({length: 8}, () => ({
-                   x: Math.random()*500, y: Math.random()*280, r: Math.random()*20 + 15, vx: (Math.random()-0.5)*1, vy: (Math.random()-0.5)*1
-                }));
-             } else if (type === '07') { 
-                state.blips = Array.from({length: 6}, () => ({
-                   x: Math.random()*400 + 50, y: Math.random()*200 + 40, life: 0
-                }));
-             }
-             activeCameras.push({ ctx, w: 500, h: 280, type, state, frame: 0 });
-          }
+                const draw = () => {
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = '#0F0';
+                    ctx.font = fontSize + 'px monospace';
 
-          setInterval(() => {
-              const el = document.getElementById(`${frameId}-time`);
-              if(el) el.innerText = new Date().toISOString().substring(11, 19);
-          }, 1000);
-          scrollToBottom();
-        }
-      },
-      whoami: {
-        action: () => printHTML(`<span class="warning-msg">SESSION:</span> O5-Command\n<span class="warning-msg">CLEARANCE:</span> LEVEL 5 (THAUMIEL)\n<span class="warning-msg">LOCATION:</span> SITE-19 MAINFRAME`)
-      },
-      reboot: { action: async () => { output.innerHTML = ''; activeCameras.length = 0; await runBootSequence(false); } },
-      clear: { action: () => { output.innerHTML = ''; activeCameras.length = 0; } },
-      redact: {
-        action: (args) => {
-          if(!args.length) { printHTML("<span class='error-msg'>ERROR: NO TEXT PROVIDED.</span>"); return; }
-          const text = args.join(' '); const redacted = text.replace(/[a-zA-Z0-9]/g, '█');
-          printHTML(`<span class="system-msg">PROCESSING MEMETIC SCRUB...</span>\n<span class="success-msg">OUTPUT:</span> ${redacted}`);
-        }
-      },
-      map: {
-        action: async () => {
-          printHTML(`<span class="system-msg">>> INITIATING GLOBAL NODE TRACEROUTE...</span><br><br>`);
-          
-          const nodes = [
-            { id: 'NA-19', region: 'NORTH AMERICA', status: 'ONLINE', cls: 'success-msg', ping: '12ms' },
-            { id: 'EU-11', region: 'EUROPE', status: 'ONLINE', cls: 'success-msg', ping: '28ms' },
-            { id: 'AS-07', region: 'ASIA', status: 'ONLINE', cls: 'success-msg', ping: '45ms' },
-            { id: 'AN-14', region: 'ANTARCTICA', status: 'QUARANTINED', cls: 'warning-msg', ping: '---' },
-            { id: 'LU-32', region: 'LUNAR-AREA-32', status: 'ACTIVE', cls: 'success-msg', ping: '1250ms' },
-            { id: 'UK-13', region: 'UNKNOWN (SITE-13)', status: 'OFFLINE', cls: 'error-msg', ping: 'TIMEOUT' }
-          ];
+                    for (let i = 0; i < drops.length; i++) {
+                        const text = chars[Math.floor(Math.random() * chars.length)];
+                        ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+                        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+                        drops[i]++;
+                    }
+                };
 
-          for (const node of nodes) {
-            playSound('type');
-            let baseStr = `> Uplink to ${node.id} [${node.region}] `;
-            let dotCount = Math.max(2, 45 - baseStr.length);
-            let dots = '.'.repeat(dotCount);
-            
-            let lineId = `trace-${Date.now()}-${node.id}`;
-            printHTML(`<div id="${lineId}" class="key-color" style="margin-bottom: 0.2rem;">${escapeHTML(baseStr)}<span class="system-msg">${dots}</span> <span class="glitch-text">AWAITING RESPONSE</span></div>`);
-            
-            await new Promise(r => setTimeout(r, 400 + Math.random() * 500));
-            
-            let el = document.getElementById(lineId);
-            if (el) {
-               if(node.status === 'OFFLINE' || node.status === 'QUARANTINED') playSound('error');
-               else playSound('success');
-               
-               // Keep status texts aligned perfectly using spaces
-               let statusText = `[ ${node.status} ]`;
-               let paddedStatus = statusText.padEnd(17, ' '); 
-               
-               el.innerHTML = `${escapeHTML(baseStr)}<span class="system-msg">${dots}</span> <span class="${node.cls}">${paddedStatus}</span> <span class="system-msg">${node.ping}</span>`;
+                const interval = setInterval(draw, 33);
+
+                const endMatrix = (e) => {
+                    if (e.key === 'q' || e.key === 'Escape' || (e.ctrlKey && e.key === 'c')) {
+                        clearInterval(interval);
+                        canvas.style.display = 'none';
+                        window.removeEventListener('keydown', endMatrix);
+                        setTimeout(() => inputEl.focus(), 10);
+                    }
+                };
+                window.addEventListener('keydown', endMatrix);
+                return null;
             }
-          }
-          
-          await new Promise(r => setTimeout(r, 400));
-          
-          let summary = `
-<div style="margin-top: 1rem; padding: 1rem; border: 1px dashed var(--term-main); background: rgba(74, 246, 38, 0.05); display: flex; gap: 3rem; align-items: center; max-width: fit-content;">
-  <div>
-    <div style="color: var(--term-accent); font-weight: bold; margin-bottom: 0.5rem;">[ NETWORK OVERVIEW ]</div>
-    <div><span class="system-msg">TOTAL NODES:</span> 6</div>
-    <div><span class="system-msg">ACTIVE SITES:</span> <span class="success-msg">4</span></div>
-    <div><span class="system-msg">QUARANTINE:</span> <span class="warning-msg">1</span></div>
-    <div><span class="system-msg">LOST CONTACT:</span> <span class="error-msg">1</span></div>
-  </div>
-  <div class="system-msg" style="white-space: pre; font-size: 0.8rem; line-height: 1.1; font-weight: bold;">
-   ....--.        _  
-  /       \\_.-'  / 
-  \\__   __\\     _ \\ 
-     \\ /   \\_\\ / \\_\\
-      "      ""   "
-  </div>
-</div>`;
-          printHTML(summary);
-          printHTML(`<br><span class="warning-msg">>> TRACEROUTE COMPLETE. 1 ANOMALOUS NODE DETECTED.</span>`);
-        }
-      },
-      track: {
-        action: async (args) => {
-          if(!args[0]) { printHTML("<span class='error-msg'>ERROR: ENTITY ID REQUIRED.</span>"); return; }
-          const id = args[0].toUpperCase();
-          printHTML(`<span class="system-msg">>> ALIGNING ORBITAL TRACKING SENSORS TO ENTITY: ${id}...</span>`);
-          await new Promise(r => setTimeout(r, 1000));
-          
-          let trackerID = `tracker-${Date.now()}`;
-          printHTML(`<div id="${trackerID}" style="border: 1px solid var(--term-main); padding: 1rem; margin-top: 0.5rem; transition: 0.3s;">
-            <div style="font-weight: bold; color: var(--term-warning); margin-bottom: 0.5rem;">[ LIVE SATELLITE TELEMETRY - ${id} ]</div>
-            <div>LATITUDE:  <span id="${trackerID}-lat" class="key-color">CALCULATING...</span></div>
-            <div>LONGITUDE: <span id="${trackerID}-lon" class="key-color">CALCULATING...</span></div>
-            <div>VELOCITY:  <span id="${trackerID}-vel" class="key-color">CALCULATING...</span></div>
-            <div style="margin-top: 0.5rem;" class="glitch-text error-msg" id="${trackerID}-status">AWAITING LOCK...</div>
-          </div>`);
-          scrollToBottom();
+        };
 
-          let latBase = (Math.random() * 180 - 90);
-          let lonBase = (Math.random() * 360 - 180);
-          
-          let updates = 0;
-          let trackInterval = setInterval(() => {
-            const elLat = document.getElementById(`${trackerID}-lat`);
-            if(!elLat) { clearInterval(trackInterval); return; } // Cleared
-            
-            latBase += (Math.random() * 0.001 - 0.0005);
-            lonBase += (Math.random() * 0.001 - 0.0005);
-            let vel = (Math.random() * 120).toFixed(2);
-            
-            elLat.innerText = latBase.toFixed(6) + "°";
-            document.getElementById(`${trackerID}-lon`).innerText = lonBase.toFixed(6) + "°";
-            document.getElementById(`${trackerID}-vel`).innerText = vel + " km/h";
-            
-            updates++;
-            if(updates > 5) document.getElementById(`${trackerID}-status`).innerText = "LOCK ACQUIRED. TRACKING ACTIVE.";
-            if(updates > 30) {
-                document.getElementById(`${trackerID}-status`).innerHTML = "<span class='error-msg'>SIGNAL LOST. TARGET SUBTERRANEAN OR DESTROYED.</span>";
-                clearInterval(trackInterval);
+        // --- Kernel Boot ---
+        const bootMessages = [
+            "[    0.000000] Linux version 5.15.0-webos (webos@builder) (gcc version 11.2.0)",
+            "[    0.004210] x86/fpu: Supporting XSAVE feature 0x001: 'x87 floating point registers'",
+            "[    0.124501] audit: initializing netlink subsys (disabled)",
+            "[    0.654123] Freeing unused kernel image (m) memory: 2048K",
+            "[    1.002341] Run /sbin/init as init process",
+            "[    1.564321] systemd[1]: Reached target Local File Systems.",
+            "[    2.543210] systemd[1]: Reached target Multi-User System."
+        ];
+
+        async function boot() {
+            for (const msg of bootMessages) {
+                print(msg, 'boot-log');
+                await new Promise(r => setTimeout(r, Math.random() * 100 + 30));
             }
-          }, 500);
+            print("\nWebOS Linux 5.15.0-webos tty1\n", "success");
+            print("Type 'help' for a list of commands.\nTry 'cmatrix' for a cool effect!\n");
+            inputContainer.style.display = 'flex';
+            updatePrompt();
+            inputEl.focus();
         }
-      },
-      breach: {
-        action: async () => {
-          if (isBreach) return;
-          isBreach = true;
-          document.body.classList.add('breach-mode');
-          document.getElementById('status-sys').innerText = "CRITICAL";
-          toggleSiren(true);
-          printHTML(`<span class="error-msg glitch-text" style="font-size:2rem; line-height:1;">!!! MULTIPLE EUCLID/KETER CLASS CONTAINMENT BREACHES DETECTED !!!</span>`);
-          printHTML(`<span class="error-msg">>> INITIATING SITE-WIDE LOCKDOWN.</span>`);
-          printHTML(`<span class="system-msg">Type 'secure' to override lockdown protocols.</span>`);
-        }
-      },
-      secure: {
-        action: () => {
-          if (!isBreach) { printHTML(`<span class="system-msg">Site is currently secure.</span>`); return; }
-          isBreach = false;
-          document.body.classList.remove('breach-mode');
-          document.getElementById('status-sys').innerText = "ONLINE";
-          toggleSiren(false);
-          playSound('success');
-          printHTML(`<span class="success-msg">>> OVERRIDE ACCEPTED. ALARMS DEACTIVATED. DISPATCHING MTF EPSILON-11.</span>`);
-        }
-      },
-      scp: {
-        action: async (args) => {
-          let itemNum = "";
-          if (args[0] && args[0].toLowerCase() === 'random') {
-            itemNum = String(Math.floor(Math.random() * 7999) + 2).padStart(3, '0');
-            printHTML(`<span class="system-msg">>> RANDOM QUERY SELECTED: SCP-${itemNum}</span>`);
-          } else if (args[0]) {
-            itemNum = args[0].toLowerCase().replace(/^scp-/, ''); 
-            if (/^\d+$/.test(itemNum) && itemNum.length < 3) itemNum = itemNum.padStart(3, '0');
-          }
 
-          if (!itemNum) {
-            playSound('error'); printHTML("<span class='error-msg'>ERROR: REQUIRED PARAMETER [ITEM NUMBER] MISSING.</span>");
-            document.body.classList.add('shake-screen'); setTimeout(() => document.body.classList.remove('shake-screen'), 400); return;
-          }
-
-          printHTML(`<div id="loading-scp" class="system-msg">ESTABLISHING FOUNDATION UPLINK [SCP-${itemNum.toUpperCase()}]... <span class="cursor" style="height: 0.8em; width: 0.4em;"></span></div>`);
-          
-          try {
-            const url = `https://scp-wiki.wikidot.com/scp-${itemNum}`;
-            const fetchUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-            const response = await fetch(fetchUrl);
-            const data = await response.json();
-            
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(data.contents, 'text/html');
-            const pageContent = doc.querySelector('#page-content');
-            document.getElementById('loading-scp')?.remove();
-
-            if (!pageContent || pageContent.textContent.includes("This page doesn't exist yet") || doc.title.includes("Error")) {
-              playSound('error');
-              printHTML(`<span class="error-msg">>> DATABASE ERROR: SCP-${itemNum.toUpperCase()} NOT FOUND OR CLASSIFIED LEVEL 5.</span>`);
-              document.body.classList.add('shake-screen'); setTimeout(() => document.body.classList.remove('shake-screen'), 400); return;
+        // --- Execution Logic ---
+        inputEl.addEventListener('keydown', (e) => {
+            // Command History Navigation
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (cmdHistory.length > 0 && historyIndex < cmdHistory.length - 1) {
+                    historyIndex++;
+                    inputEl.value = cmdHistory[cmdHistory.length - 1 - historyIndex];
+                }
+                return;
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (historyIndex > 0) {
+                    historyIndex--;
+                    inputEl.value = cmdHistory[cmdHistory.length - 1 - historyIndex];
+                } else if (historyIndex === 0) {
+                    historyIndex = -1;
+                    inputEl.value = '';
+                }
+                return;
             }
 
-            pageContent.querySelectorAll('.page-rate-widget-box, .creditRate, #toc, .info-container, .footer-wikiwalk-nav, .wikiwalk-nav').forEach(el => el.remove());
-            Array.from(pageContent.children).forEach(el => {
-              if (el.textContent.includes('«') && el.textContent.includes('»') && el.textContent.includes('SCP-')) el.remove();
-            });
+            // Tab Autocomplete
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const raw = inputEl.value;
+                const args = raw.split(' ');
+                const lastToken = args.pop();
+                
+                // If first word, complete command
+                if (args.length === 0) {
+                    const matches = Object.keys(commands).filter(c => c.startsWith(lastToken));
+                    if (matches.length === 1) inputEl.value = matches[0] + ' ';
+                } else {
+                    // Complete file/folder in current dir
+                    const node = getNode(currentPath);
+                    if (node && node.type === 'dir') {
+                        const matches = Object.keys(node.content).filter(f => f.startsWith(lastToken));
+                        if (matches.length === 1) {
+                            const isDir = node.content[matches[0]].type === 'dir';
+                            inputEl.value = args.join(' ') + ' ' + matches[0] + (isDir ? '/' : '');
+                        }
+                    }
+                }
+                return;
+            }
 
-            pageContent.querySelectorAll('img').forEach(img => {
-              let src = img.getAttribute('src');
-              if (src && src.startsWith('/')) img.src = 'https://scp-wiki.wikidot.com' + src; 
-            });
+            // Execute Command
+            if (e.key === 'Enter') {
+                const raw = inputEl.value;
+                inputEl.value = '';
+                
+                if (raw.trim() !== '') {
+                    cmdHistory.push(raw);
+                    historyIndex = -1;
+                }
 
-            pageContent.querySelectorAll('a').forEach(a => {
-              let href = a.getAttribute('href');
-              if (href && href.startsWith('/')) a.href = 'https://scp-wiki.wikidot.com' + href;
-              a.target = '_blank';
-            });
+                const args = raw.trim().split(/\s+/);
+                const cmd = args.shift();
 
-            let finalHtml = pageContent.innerHTML;
-            finalHtml = finalHtml.replace(/(Item #:|Object Class:|Special Containment Procedures:|Description:|Addendum.*?:)/g, '<span class="scp-keyword">$1</span>');
+                printHTML(`${promptEl.innerHTML} ${raw}`);
 
-            document.getElementById('nano-title').textContent = `File: SCP-${itemNum.toUpperCase()}`;
-            nanoContent.innerHTML = finalHtml;
-            nanoView.style.display = 'flex';
-            inPager = true;
+                if (!cmd) return;
+                
+                // Redirection check (e.g. echo "hello" > file.txt)
+                let redirectIdx = args.indexOf('>');
+                let redirectFile = null;
+                if (redirectIdx !== -1) {
+                    redirectFile = args.splice(redirectIdx)[1];
+                }
+
+                if (commands[cmd]) {
+                    const result = commands[cmd](args);
+                    if (result !== null && result !== undefined) {
+                        if (redirectFile) {
+                            const { parent, name } = getParentNodeAndName(resolvePath(redirectFile));
+                            if (parent && parent.type === 'dir') {
+                                // Strip HTML tags before writing to VFS
+                                const cleanResult = result.replace(/<[^>]*>?/gm, '');
+                                if (!parent.content[name]) parent.content[name] = createNode('file', cleanResult, env.USER);
+                                else parent.content[name].content = cleanResult;
+                            } else {
+                                print(`<span class="error">bash: ${redirectFile}: No such directory</span>`);
+                            }
+                        } else {
+                            if (result.includes('<span') || result.includes('<div')) printHTML(result);
+                            else print(result);
+                        }
+                    }
+                } else {
+                    print(`${cmd}: command not found`, 'error');
+                }
+            }
             
-            await runDecryptionSequence();
+            // Handle Ctrl+C
+            if (e.ctrlKey && e.key === 'c') {
+                e.preventDefault();
+                printHTML(`${promptEl.innerHTML} ${inputEl.value}^C`);
+                inputEl.value = '';
+                historyIndex = -1;
+            }
+            
+            // Handle Ctrl+L
+            if (e.ctrlKey && e.key === 'l') {
+                e.preventDefault();
+                commands.clear();
+            }
+        });
 
-          } catch (err) {
-            document.getElementById('loading-scp')?.remove();
-            playSound('error'); printHTML(`<span class="error-msg">>> NETWORK INTERFERENCE. CONNECTION TO FOUNDATION LOST.</span>`);
-            document.body.classList.add('shake-screen'); setTimeout(() => document.body.classList.remove('shake-screen'), 400);
-          }
-        }
-      }
-    };
+        // Ensure focus is kept on terminal click
+        terminal.addEventListener('click', () => {
+            if (document.getElementById('nano-editor').style.display !== 'flex' && 
+                document.getElementById('top-overlay').style.display !== 'flex' &&
+                document.getElementById('cmatrix-overlay').style.display !== 'block') {
+                inputEl.focus();
+            }
+        });
 
-    const aliases = { 'cls': 'clear', 'fetch': 'scp', 'random': 'scp random', 'camera': 'cctv' };
-
-    function scrollToBottom() {
-      terminalContainer.scrollTop = terminalContainer.scrollHeight;
-      requestAnimationFrame(() => terminalContainer.scrollTop = terminalContainer.scrollHeight);
-    }
-
-    function printText(text, className = '') {
-      const el = document.createElement('div'); if (className) el.className = className;
-      el.textContent = text; output.appendChild(el); scrollToBottom();
-    }
-
-    function printHTML(html, className = '') {
-      const el = document.createElement('div'); if (className) el.className = className;
-      el.innerHTML = html; output.appendChild(el); scrollToBottom();
-    }
-
-    // --- IMMERSIVE BOOT SEQUENCE ---
-    const bootText = [
-      { text: "SCiPNET OS v. 8.2.4 [O5 COMMAND INITIALIZATION]", delay: 200 },
-      { text: "Establishing secure connection to Site-19...", delay: 300 },
-      { text: "> Node 1: 104.28.██.██ [US-E] - SUCCESS", delay: 100 },
-      { text: "> Node 2: 185.17.██.██ [EU-W] - SUCCESS", delay: 100 },
-      { text: "> Node 3: SITE-19 MAINFRAME - SUCCESS", delay: 200 },
-      { text: " ", delay: 100 },
-      { text: "Bypassing biometric constraints...", delay: 300 },
-      { text: "<span class='success-msg'>[ OK ]</span> Voiceprint spoofed.", delay: 150 },
-      { text: "<span class='success-msg'>[ OK ]</span> Retinal scan bypassed.", delay: 150 },
-      { text: " ", delay: 100 },
-      { text: "<span class='warning-msg glitch-text'>WARNING: MEMETIC KILL AGENT DETECTED IN LOGIN SEQUENCE.</span>", delay: 800 },
-      { type: "memetic", delay: 800 },
-      { text: "Deploying counter-memetic inoculation...", delay: 600 },
-      { text: "Injecting payload: <span class='glitch-text'>[FRACTAL_SHIELD_V4]</span>", delay: 400 },
-      { text: "0x00A1: 4B 49 4C 4C 20 41 47 45 4E 54", delay: 40 },
-      { text: "0x00B2: 4E 45 55 54 52 41 4C 49 5A 45", delay: 40 },
-      { text: "<span class='success-msg'>[ OK ]</span> Memetic hazard neutralized.", delay: 300 },
-      { text: " ", delay: 100 },
-      { text: "Mounting encrypted volatile memory...", delay: 400 },
-      { text: "<span class='success-msg'>[ OK ]</span> Mounted /dev/mapper/scp-db", delay: 200 },
-      { text: " ", delay: 100 },
-      { type: "progress", duration: 1000 },
-      { text: " ", delay: 100 },
-      { text: "<span class='success-msg'>[ OK ]</span> Database decryption complete.", delay: 400 },
-      { text: " ", delay: 200 }
-    ];
-
-    async function runBootSequence(initial = true) {
-      inputLine.style.display = 'none';
-      
-      if(initial) {
-         playSound('poweron');
-         document.getElementById('screen-glass').classList.add('power-on');
-         await new Promise(r => setTimeout(r, 600)); // wait for CRT turn on
-      }
-
-      for (const log of bootText) {
-        if (log.type === 'progress') {
-          const el = document.createElement('div'); el.className = 'system-msg'; output.appendChild(el);
-          let chars = ['-', '\\', '|', '/']; let i = 0; let startTime = Date.now();
-          await new Promise(resolve => {
-            let interval = setInterval(() => {
-              let elapsed = Date.now() - startTime;
-              let percent = Math.min(100, Math.floor((elapsed / log.duration) * 100));
-              let bars = Math.floor(percent / 5); let barStr = '#'.repeat(bars).padEnd(20, ' ');
-              el.innerHTML = `Downloading SCiPNET index... [${barStr}] ${percent}% ${percent < 100 ? chars[i++ % chars.length] : ''}`;
-              if (percent % 10 === 0) playSound('type');
-              scrollToBottom();
-              if (percent >= 100) { clearInterval(interval); resolve(); }
-            }, 40);
-          });
-        } else if (log.type === 'memetic') {
-            playSound('error'); document.body.classList.add('shake-screen');
-            const mkAgent = `
-<span class="error-msg glitch-text" style="font-size: 8px; line-height: 8px;">
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-@@@@@@@@@@@@@@@@@@@@@/'''''''''''''''''''''''''''\\@@@@@@@@@@@@@@@@@@@@
-@@@@@@@@@@@@@@@@@@@@/  /\\  /\\  /\\  /\\  /\\  /\\  /\\ \\@@@@@@@@@@@@@@@@@@@
-@@@@@@@@@@@@@@@@@@@/  /  \\/  \\/  \\/  \\/  \\/  \\/  \\ \\@@@@@@@@@@@@@@@@@@
-@@@@@@@@@@@@@@@@@@|  | /\\ | /\\ | /\\ | /\\ | /\\ | /\\ | |@@@@@@@@@@@@@@@@
-@@@@@@@@@@@@@@@@@@|  |/  \\|/  \\|/  \\|/  \\|/  \\|/  \\| |@@@@@@@@@@@@@@@@
-@@@@@@@@@@@@@@@@@@|  |\\__/|\\__/|\\__/|\\__/|\\__/|\\__/| |@@@@@@@@@@@@@@@@
-@@@@@@@@@@@@@@@@@@@\\  \\  /\\  /\\  /\\  /\\  /\\  /\\  /  /@@@@@@@@@@@@@@@@@
-@@@@@@@@@@@@@@@@@@@@\\  \\/  \\/  \\/  \\/  \\/  \\/  \\/  /@@@@@@@@@@@@@@@@@@
-@@@@@@@@@@@@@@@@@@@@@\\,,,,,,,,,,,,,,,,,,,,,,,,,,,/@@@@@@@@@@@@@@@@@@@@
-</span>`;
-            printHTML(mkAgent);
-            await new Promise(r => setTimeout(r, 150));
-            output.innerHTML = ''; setTimeout(() => document.body.classList.remove('shake-screen'), 400);
-        } else {
-          if (log.text) { printHTML(`<span class="system-msg">${log.text}</span>`); playSound('type'); } 
-          else { printHTML("<br>"); }
-          await new Promise(r => setTimeout(r, log.delay));
-        }
-      }
-      
-      const ascii = `
-  ███████╗ ██████╗██╗██████╗ ███╗   ██╗███████╗████████╗
-  ██╔════╝██╔════╝██║██╔══██╗████╗  ██║██╔════╝╚══██╔══╝
-  ███████╗██║     ██║██████╔╝██╔██╗ ██║█████╗     ██║   
-  ╚════██║██║     ██║██╔═══╝ ██║╚██╗██║██╔══╝     ██║   
-  ███████║╚██████╗██║██║     ██║ ╚████║███████╗   ██║   
-  ╚══════╝ ╚═════╝╚═╝╚═╝     ╚═╝  ╚═══╝╚══════╝   ╚═╝   
-`;
-      playSound('success');
-      printText(ascii.replace(/^\n/, ''), 'ascii-art');
-      printHTML("<span class='warning-msg'>[ DIRECTIVE: SECURE. CONTAIN. PROTECT. ]</span>");
-      printHTML("Type <span class='key-color'>help</span> for commands, or <span class='key-color'>scp [ITEM_NUMBER]</span> to query the database.\n<br>");
-      
-      inputLine.style.display = 'flex';
-      inputField.focus({preventScroll: true});
-      scrollToBottom();
-    }
-
-    // --- INPUT HANDLING ---
-    inputField.addEventListener('input', () => {
-      initAudio(); playSound('type');
-      cmdDisplay.textContent = inputField.value;
-      cursorEl.classList.add('typing'); clearTimeout(typingTimer);
-      typingTimer = setTimeout(() => cursorEl.classList.remove('typing'), 500);
-    });
-
-    inputField.addEventListener('keydown', async (e) => {
-      initAudio();
-      
-      if (inPager) {
-        e.preventDefault(); playSound('type');
-        if (e.key.toLowerCase() === 'q' || e.key === 'Escape') closePager();
-        else if (e.key === 'ArrowDown') nanoContent.scrollTop += 50;
-        else if (e.key === 'ArrowUp') nanoContent.scrollTop -= 50;
-        else if (e.key === 'PageDown' || e.key === ' ') nanoContent.scrollTop += nanoContent.clientHeight - 40;
-        else if (e.key === 'PageUp') nanoContent.scrollTop -= nanoContent.clientHeight - 40;
-        return;
-      }
-
-      if (e.key === 'Enter') {
-        playSound('enter');
-        const rawCmd = inputField.value; const cmd = rawCmd.trim();
-        inputField.value = ''; cmdDisplay.textContent = '';
-        printHTML(`${getPromptHTML()} <span style="color: #fff;">${escapeHTML(rawCmd)}</span>`);
-        
-        if (cmd) {
-          commandHistory.push(cmd); historyIndex = commandHistory.length;
-          let args = cmd.split(' '); let baseCmd = args[0].toLowerCase();
-          
-          if (aliases[baseCmd]) {
-             const resolvedAlias = aliases[baseCmd].split(' ');
-             baseCmd = resolvedAlias[0]; args = resolvedAlias.concat(args.slice(1));
-          } else if (/^\d+$/.test(baseCmd)) { args.unshift('scp'); baseCmd = 'scp'; }
-          
-          if (commands[baseCmd]) await commands[baseCmd].action(args.slice(1));
-          else { playSound('error'); printHTML(`<span class="error-msg">bash: ${escapeHTML(baseCmd)}: command not found</span>`); }
-        }
-        printHTML(''); scrollToBottom();
-
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault(); playSound('type');
-        if (historyIndex > 0) { historyIndex--; inputField.value = commandHistory[historyIndex]; cmdDisplay.textContent = inputField.value; }
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault(); playSound('type');
-        if (historyIndex < commandHistory.length - 1) { historyIndex++; inputField.value = commandHistory[historyIndex]; cmdDisplay.textContent = inputField.value; } 
-        else { historyIndex = commandHistory.length; inputField.value = ''; cmdDisplay.textContent = ''; }
-      } else if (e.key === 'Tab') {
-        e.preventDefault(); playSound('type');
-        const currentCmd = inputField.value.toLowerCase();
-        const availableCmds = Object.keys(commands).concat(Object.keys(aliases));
-        const matches = availableCmds.filter(c => c.startsWith(currentCmd));
-        if (matches.length === 1) { inputField.value = matches[0]; cmdDisplay.textContent = inputField.value; } 
-        else if (matches.length > 1 || currentCmd === '') {
-          printHTML(`${getPromptHTML()} <span style="color: #fff;">${escapeHTML(inputField.value)}</span>`);
-          printText((matches.length > 0 ? matches : availableCmds).join('   '), 'key-color');
-          printHTML(''); scrollToBottom();
-        }
-      }
-    });
-
-    // --- GLOBAL EVENTS ---
-    document.addEventListener('click', () => {
-      initAudio(); if (window.getSelection().toString() === '' && !inPager) inputField.focus({ preventScroll: true });
-    });
-    window.addEventListener('resize', () => { if (!inPager) scrollToBottom(); });
-    
-    // STARTUP
-    window.addEventListener('load', () => {
-      const initBtn = document.getElementById('init-overlay');
-      initBtn.addEventListener('click', () => {
-        initAudio(); initBtn.remove(); runBootSequence(true);
-      });
-    });
-    
-  </script>
+        window.onload = boot;
+    </script>
 </body>
 </html>
