@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Terminal - Linux Kernel 5.15</title>
+    <style>
+        :root {
+            --bg-color: #0c0c0c;
+            --fg-color: #cccccc;
+            --prompt-user: #11a143;
+            --prompt-path: #3b78ff;
+            --dir-color: #3b78ff;
+            --file-color: #cccccc;
+            --error-color: #e74856;
+            --font-family: 'Cascadia Code', 'Ubuntu Mono', monospace;
+            --font-size: 15px;
+        }
+
+        [data-theme="hacker"] {
+            --bg-color: #050505;
+            --fg-color: #00ff00;
+            --prompt-user: #00ff00;
+            --prompt-path: #00ff00;
+            --dir-color: #00ff00;
+            --file-color: #00ff00;
+            --error-color: #ff0000;
+            text-shadow: 0 0 5px rgba(0, 255, 0, 0.4);
+        }
+
+        [data-theme="light"] {
+            --bg-color: #f3f3f3;
+            --fg-color: #333333;
+            --prompt-user: #008000;
+            --prompt-path: #0000ff;
+            --dir-color: #0000ff;
+            --file-color: #333333;
+            --error-color: #ff0000;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body, html {
+            height: 100%; width: 100%;
+            background-color: var(--bg-color);
+            color: var(--fg-color);
+            font-family: var(--font-family);
+            font-size: var(--font-size);
+            overflow: hidden;
+            position: relative;
+        }
+
+        #terminal {
+            height: 100%; width: 100%;
+            padding: 15px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #444 transparent;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #terminal::-webkit-scrollbar { width: 6px; }
+        #terminal::-webkit-scrollbar-thumb { background-color: #444; border-radius: 3px; }
+
+        .output-line {
+            margin-bottom: 2px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.3;
+        }
+
+        .input-line {
+            display: none; /* Hidden during boot */
+            align-items: center;
+            margin-top: 5px;
+        }
+
+        .prompt { font-weight: bold; margin-right: 8px; white-space: pre; }
+        .prompt .user { color: var(--prompt-user); }
+        .prompt .path { color: var(--prompt-path); }
+
+        #cmd-input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            color: inherit;
+            font-family: inherit;
+            font-size: inherit;
+            outline: none;
+        }
+
+        .dir { color: var(--dir-color); font-weight: bold; }
+        .error { color: var(--error-color); }
+        .boot-log { color: #aaa; font-size: 13px; }
+        .success { color: #11a143; }
+
+        /* Full-screen UI components */
+        #top-overlay, #nano-editor {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: var(--bg-color);
+            z-index: 100;
+            padding: 10px;
+            flex-direction: column;
+        }
+
+        #nano-header, #nano-footer {
+            background-color: var(--fg-color);
+            color: var(--bg-color);
+            padding: 2px 10px;
+            font-weight: bold;
+        }
+
+        #nano-textarea {
+            flex-grow: 1;
+            background: transparent;
+            color: inherit;
+            border: none;
+            padding: 10px;
+            font-family: inherit;
+            font-size: inherit;
+            outline: none;
+            resize: none;
+        }
+
+        .ls-l-table { display: table; margin: 5px 0; }
+        .ls-l-row { display: table-row; }
+        .ls-l-cell { display: table-cell; padding-right: 15px; white-space: pre; }
+    </style>
+</head>
+<body>
+
+    <div id="terminal">
+        <div id="output"></div>
+        <div class="input-line" id="input-container">
+            <span class="prompt" id="prompt"></span>
+            <input type="text" id="cmd-input" autocomplete="off" spellcheck="false" autofocus>
+        </div>
+    </div>
+
+    <!-- Nano Editor -->
+    <div id="nano-editor">
+        <div id="nano-header">GNU nano 5.4 - <span id="nano-filename"></span></div>
+        <textarea id="nano-textarea" spellcheck="false"></textarea>
+        <div id="nano-footer">^X Exit  ^O Write Out  ^W Where Is</div>
+    </div>
+
+    <!-- Top Overlay -->
+    <div id="top-overlay">
+        <div id="top-content" style="white-space: pre; font-family: monospace;"></div>
+    </div>
+
+    <script>
+        // --- System Internals ---
+        const startTime = Date.now();
+        let env = { USER: 'guest', HOME: '/home/guest', PWD: '/home/guest', SHELL: '/bin/bash', PATH: '/bin:/usr/bin' };
+        let currentPath = ['home', 'guest'];
+        let processes = [
+            { pid: 1, name: 'systemd', user: 'root', cpu: 0.1, mem: 1.2 },
+            { pid: 42, name: 'bash', user: 'guest', cpu: 0.0, mem: 0.5 },
+            { pid: 502, name: 'sshd', user: 'root', cpu: 0.0, mem: 0.2 }
+        ];
+
+        // --- Virtual File System ---
+        function createNode(type, content = '', owner = 'root', perms = null) {
+            return {
+                type, content, owner,
+                group: owner === 'root' ? 'root' : 'users',
+                perms: perms || (type === 'dir' ? 'drwxr-xr-x' : '-rw-r--r--'),
+                date: new Date().toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
+                size: type === 'dir' ? 4096 : content.length
+            };
+        }
+
+        const vfs = createNode('dir', {
+            'bin': createNode('dir', {}),
+            'etc': createNode('dir', {
+                'hostname': createNode('file', 'webos-server\n'),
+                'passwd': createNode('file', 'root:x:0:0:root:/root:/bin/bash\nguest:x:1000:1000:guest:/home/guest:/bin/bash\n'),
+                'motd': createNode('file', 'Welcome to WebOS Linux 5.15 LTS\n* Documentation: https://github.com/webos\n')
+            }),
+            'home': createNode('dir', {
+                'guest': createNode('dir', {
+                    'documents': createNode('dir', {
+                        'notes.txt': createNode('file', 'Remember to fix the JS VFS logic tomorrow.', 'guest')
+                    }, 'guest'),
+                    'script.py': createNode('file', 'print("Hello from Python simulation")', 'guest')
+                }, 'guest')
+            }),
+            'proc': createNode('dir', {}), // Dynamic
+            'var': createNode('dir', { 'log': createNode('dir', { 'syslog': createNode('file', 'Initial boot complete.\n') }) })
+        });
+
+        // --- UI Logic ---
+        const outputEl = document.getElementById('output');
+        const inputEl = document.getElementById('cmd-input');
+        const promptEl = document.getElementById('prompt');
+        const inputContainer = document.getElementById('input-container');
+        const terminal = document.getElementById('terminal');
+
+        function print(text, className = '') {
+            const div = document.createElement('div');
+            div.className = 'output-line ' + className;
+            div.innerHTML = text.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+            outputEl.appendChild(div);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function printHTML(html, className = '') {
+            const div = document.createElement('div');
+            div.className = 'output-line ' + className;
+            div.innerHTML = html;
+            outputEl.appendChild(div);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function updatePrompt() {
+            const pathStr = '/' + currentPath.join('/');
+            const displayPath = pathStr.startsWith(env.HOME) ? '~' + pathStr.slice(env.HOME.length) : (pathStr || '/');
+            promptEl.innerHTML = `<span class="user">${env.USER}@webos</span>:<span class="path">${displayPath}</span>${env.USER === 'root' ? '#' : '$'}`;
+        }
+
+        // --- Path Resolution ---
+        function resolvePath(pathStr) {
+            if (!pathStr) return [...currentPath];
+            if (pathStr === '~') return env.HOME.split('/').filter(x => x);
+            let parts = pathStr.split('/').filter(p => p !== '');
+            let target = pathStr.startsWith('/') ? [] : [...currentPath];
+
+            for (let p of parts) {
+                if (p === '.') continue;
+                if (p === '..') { if (target.length > 0) target.pop(); }
+                else target.push(p);
+            }
+            return target;
+        }
+
+        function getNode(pathArr) {
+            let curr = vfs;
+            for (let p of pathArr) {
+                if (curr.type !== 'dir' || !curr.content[p]) return null;
+                curr = curr.content[p];
+            }
+            return curr;
+        }
+
+        // --- Command System ---
+        const commands = {
+            clear: () => { outputEl.innerHTML = ''; return null; },
+            pwd: () => '/' + currentPath.join('/'),
+            whoami: () => env.USER,
+            date: () => new Date().toString(),
+            uptime: () => {
+                const diff = Math.floor((Date.now() - startTime) / 1000);
+                return `up ${Math.floor(diff / 60)} minutes, 1 user, load average: 0.01, 0.05, 0.10`;
+            },
+            ls: (args) => {
+                const long = args.includes('-l');
+                const all = args.includes('-a');
+                const target = resolvePath(args.find(a => !a.startsWith('-')) || '');
+                const node = getNode(target);
+                if (!node || node.type !== 'dir') return `<span class="error">ls: cannot access: No such directory</span>`;
+                
+                let keys = Object.keys(node.content);
+                if (all) keys = ['.', '..', ...keys];
+                keys.sort();
+
+                if (long) {
+                    let html = '<div class="ls-l-table">';
+                    keys.forEach(k => {
+                        const item = (k === '.' || k === '..') ? node : node.content[k];
+                        html += `<div class="ls-l-row">
+                            <span class="ls-l-cell">${item.perms}</span>
+                            <span class="ls-l-cell">${item.owner}</span>
+                            <span class="ls-l-cell" style="text-align:right">${item.size}</span>
+                            <span class="ls-l-cell">${item.date}</span>
+                            <span class="ls-l-cell ${item.type === 'dir' ? 'dir' : ''}">${k}</span>
+                        </div>`;
+                    });
+                    return html + '</div>';
+                }
+                return keys.map(k => {
+                    const type = (k !== '.' && k !== '..' && node.content[k].type === 'dir') ? 'dir' : '';
+                    return `<span class="${type}">${k}</span>`;
+                }).join('  ');
+            },
+            cd: (args) => {
+                const target = resolvePath(args[0] || '~');
+                const node = getNode(target);
+                if (node && node.type === 'dir') { currentPath = target; updatePrompt(); return null; }
+                return `<span class="error">cd: ${args[0]}: No such directory</span>`;
+            },
+            cat: (args) => {
+                const node = getNode(resolvePath(args[0]));
+                if (!node || node.type === 'dir') return `<span class="error">cat: ${args[0]}: Not a file</span>`;
+                return node.content;
+            },
+            su: (args) => {
+                const user = args[0] || 'root';
+                print(`Password for ${user}: `); // Purely cosmetic simulation
+                setTimeout(() => {
+                    env.USER = user;
+                    env.HOME = user === 'root' ? '/root' : '/home/' + user;
+                    currentPath = env.HOME.split('/').filter(x => x);
+                    updatePrompt();
+                    print(`Logged in as ${user}`, 'success');
+                }, 800);
+                return null;
+            },
+            ps: () => {
+                let out = "  PID TTY          TIME CMD\n";
+                processes.forEach(p => out += `${p.pid.toString().padStart(5)} pts/0    00:00:00 ${p.name}\n`);
+                return out;
+            },
+            top: () => {
+                const overlay = document.getElementById('top-overlay');
+                const content = document.getElementById('top-content');
+                overlay.style.display = 'flex';
+                const interval = setInterval(() => {
+                    let out = `top - ${new Date().toLocaleTimeString()} up ...\n`;
+                    out += `Tasks: ${processes.length} total, 1 running, ${processes.length - 1} sleeping\n`;
+                    out += `%Cpu(s): ${ (Math.random() * 2).toFixed(1) } us, 1.2 sy, 0.0 ni, 98.5 id\n\n`;
+                    out += `  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND\n`;
+                    processes.forEach(p => {
+                        out += `${p.pid.toString().padStart(5)} ${p.user.padEnd(8)} 20   0  162312  24212   1241 S   ${p.cpu.toFixed(1)}   ${p.mem.toFixed(1)}   0:00.01 ${p.name}\n`;
+                    });
+                    content.innerText = out;
+                }, 1000);
+
+                const endTop = (e) => {
+                    if (e.key === 'q' || e.key === 'Escape') {
+                        clearInterval(interval);
+                        overlay.style.display = 'none';
+                        window.removeEventListener('keydown', endTop);
+                    }
+                };
+                window.addEventListener('keydown', endTop);
+                return null;
+            },
+            ping: (args) => {
+                if (!args[0]) return "Usage: ping <host>";
+                let count = 0;
+                print(`PING ${args[0]} (1.1.1.1) 56(84) bytes of data.`);
+                const int = setInterval(() => {
+                    print(`64 bytes from 1.1.1.1: icmp_seq=${++count} ttl=58 time=${(Math.random()*20+10).toFixed(1)} ms`);
+                    if (count >= 4) {
+                        clearInterval(int);
+                        print(`--- ${args[0]} ping statistics ---`);
+                        print(`4 packets transmitted, 4 received, 0% packet loss`);
+                    }
+                }, 1000);
+                return null;
+            },
+            curl: (args) => {
+                if (!args[0]) return "curl: try 'curl --help' for more information";
+                print(`Connecting to ${args[0]}...`);
+                setTimeout(() => print(`HTTP/1.1 200 OK\nContent-Type: text/html\n\n&lt;html&gt;&lt;body&gt;Welcome to ${args[0]}&lt;/body&gt;&lt;/html&gt;`), 1200);
+                return null;
+            }
+        };
+
+        // --- Kernel Boot ---
+        const bootMessages = [
+            "[    0.000000] Linux version 5.15.0-webos (webos@builder) (gcc version 11.2.0)",
+            "[    0.000000] Command line: BOOT_IMAGE=/boot/vmlinuz-5.15.0-webos root=UUID=... ro quiet",
+            "[    0.004210] x86/fpu: Supporting XSAVE feature 0x001: 'x87 floating point registers'",
+            "[    0.124501] audit: initializing netlink subsys (disabled)",
+            "[    0.342123] pci 0000:00:00.0: [8086:1237] type 00 class 0x060000",
+            "[    0.654123] Freeing unused kernel image (m) memory: 2048K",
+            "[    0.876543] Write protecting the kernel read-only data: 20480k",
+            "[    1.002341] Run /sbin/init as init process",
+            "[    1.245672] systemd[1]: Set hostname to <webos-server>",
+            "[    1.564321] systemd[1]: Reached target Local File Systems.",
+            "[    1.876543] systemd[1]: Listening on D-Bus System Message Bus Socket.",
+            "[    2.123456] systemd[1]: Started User Login Management Service.",
+            "[    2.543210] systemd[1]: Reached target Multi-User System.",
+            "[    2.876543] systemd[1]: Reached target Graphical Interface."
+        ];
+
+        async function boot() {
+            for (const msg of bootMessages) {
+                print(msg, 'boot-log');
+                await new Promise(r => setTimeout(r, Math.random() * 200 + 50));
+            }
+            print("\nWebOS Linux 5.15.0-webos tty1\n", "success");
+            print("Type 'help' for commands.\n");
+            inputContainer.style.display = 'flex';
+            updatePrompt();
+            inputEl.focus();
+        }
+
+        // --- Execution Logic ---
+        inputEl.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter') {
+                const raw = inputEl.value;
+                inputEl.value = '';
+                const args = raw.trim().split(/\s+/);
+                const cmd = args.shift();
+
+                printHTML(`${promptEl.innerHTML} ${raw}`);
+
+                if (!cmd) return;
+                if (commands[cmd]) {
+                    const result = commands[cmd](args);
+                    if (result) {
+                        if (result.includes('<span')) printHTML(result);
+                        else print(result);
+                    }
+                } else {
+                    print(`${cmd}: command not found`, 'error');
+                }
+            }
+        });
+
+        window.onload = boot;
+    </script>
+</body>
+</html>
